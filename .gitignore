@@ -1,0 +1,26 @@
+# Python Cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Datasets (Large Files)
+*.jsonl
+sample_candidates.json
+custom_*
+
+# Outputs (Generated CSVs)
+submission_*.csv
+test_out.csv
+test_submission.csv
+submission.csv
+
+# Virtual Environments
+venv/
+.venv/
+env/
+.env
+
+# IDEs
+.vscode/
+.idea/
