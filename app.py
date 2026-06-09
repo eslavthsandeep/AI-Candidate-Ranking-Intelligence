@@ -20,7 +20,14 @@ def rank_background_task(task_id, source):
     try:
         TASKS[task_id] = {'status': 'running', 'progress': 0, 'stage': 'Initializing', 'total': 0, 'processed': 0}
         
-        base_dir = r"c:\Users\LENOVO\Desktop\AI-Hacks\[PUB] India_runs_data_and_ai_challenge\[PUB] India_runs_data_and_ai_challenge\India_runs_data_and_ai_challenge"
+        # Define base data path relative to the project root
+        base_dir = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "[PUB] India_runs_data_and_ai_challenge",
+            "[PUB] India_runs_data_and_ai_challenge",
+            "India_runs_data_and_ai_challenge"
+        )
+        
         if source == 'sample':
             input_path = os.path.join(base_dir, 'sample_candidates.json')
             total = 50
@@ -38,6 +45,14 @@ def rank_background_task(task_id, source):
                     total = len(json.load(f))
         else:
             raise ValueError(f"Unknown data source: {source}")
+
+        # Guard check for online hosting where large files might not be committed to Git
+        if not os.path.exists(input_path):
+            file_label = "Sample candidates file" if source == 'sample' else "Full candidates database"
+            raise FileNotFoundError(
+                f"{file_label} was not found in git repository. "
+                f"Please use the 'Upload Dataset' button to upload and rank custom datasets!"
+            )
 
         TASKS[task_id]['total'] = total
 

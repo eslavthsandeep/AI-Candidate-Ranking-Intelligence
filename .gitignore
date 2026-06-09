@@ -6,7 +6,6 @@ __pycache__/
 
 # Datasets (Large Files)
 *.jsonl
-sample_candidates.json
 custom_*
 
 # Outputs (Generated CSVs)
