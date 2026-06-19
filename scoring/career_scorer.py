@@ -26,8 +26,10 @@ from config import (
 )
 
 
-def _get_title_tier(title: str) -> int:
+def _get_title_tier(title: str | None) -> int:
     """Return tier (1-5) for a title. Default 5 for unrecognized titles."""
+    if not title:
+        return 5
     t = title.strip().lower()
     # Exact match first
     if t in TITLE_TIERS:
@@ -39,14 +41,36 @@ def _get_title_tier(title: str) -> int:
     return 5
 
 
-def _is_consulting_company(company: str) -> bool:
+def _is_consulting_company(company: str | None) -> bool:
+    if not company:
+        return False
     return company.strip().lower() in CONSULTING_COMPANIES
 
 
-def _count_keyword_hits(text: str, keywords: set[str]) -> int:
-    """Count how many distinct keywords appear in the text."""
+def _count_keyword_hits(text: str | None, keywords: set[str]) -> int:
+    """Count how many distinct keywords appear in the text.
+
+    Single-word keywords use exact word matching (tokenized) to prevent
+    substring collisions like 'api' matching 'rapid'.
+    Multi-word/compound keywords use substring matching.
+    """
+    if not text:
+        return 0
     text_lower = text.lower()
-    return sum(1 for kw in keywords if kw in text_lower)
+    words = set(re.findall(r'[a-zA-Z0-9\-\+#/.]+', text_lower))
+
+    hits = 0
+    for kw in keywords:
+        kw_clean = kw.lower()
+        if ' ' in kw_clean:
+            # Multi-word phrase → substring match
+            if kw_clean in text_lower:
+                hits += 1
+        else:
+            # Single word → exact word match
+            if kw_clean in words:
+                hits += 1
+    return hits
 
 
 def _parse_date(date_str: str | None) -> datetime | None:
@@ -73,9 +97,15 @@ def score_career(candidate: dict) -> dict:
         - hopping_penalty (float): penalty for frequent switching
         - industry_score (float): product co vs services
     """
-    profile = candidate.get("profile", {})
-    career = candidate.get("career_history", [])
-    yoe = profile.get("years_of_experience", 0)
+    if not isinstance(candidate, dict):
+        return _empty_result()
+    profile = candidate.get("profile") or {}
+    if not isinstance(profile, dict):
+        profile = {}
+    career = candidate.get("career_history") or []
+    if not isinstance(career, list):
+        career = []
+    yoe = profile.get("years_of_experience") or 0
 
     if not career:
         return _empty_result()
@@ -84,7 +114,9 @@ def score_career(candidate: dict) -> dict:
     best_tier = 5
     current_tier = 5
     for i, role in enumerate(career):
-        t = _get_title_tier(role.get("title", ""))
+        if not isinstance(role, dict):
+            continue
+        t = _get_title_tier(role.get("title"))
         if t < best_tier:
             best_tier = t
         if role.get("is_current", False) or i == 0:
@@ -150,7 +182,9 @@ def score_career(candidate: dict) -> dict:
     production_hits = 0
     total_desc_len = 0
     for role in career:
-        desc = role.get("description", "")
+        if not isinstance(role, dict):
+            continue
+        desc = role.get("description") or ""
         total_desc_len += len(desc)
         production_hits += _count_keyword_hits(desc, PRODUCTION_KEYWORDS)
 
@@ -168,7 +202,9 @@ def score_career(candidate: dict) -> dict:
     # ── 5. Career description AI/ML relevance (0-15) ─────────
     ml_hits = 0
     for role in career:
-        desc = role.get("description", "")
+        if not isinstance(role, dict):
+            continue
+        desc = role.get("description") or ""
         ml_hits += _count_keyword_hits(desc, AI_ML_KEYWORDS)
 
     if ml_hits >= 15:
@@ -188,8 +224,10 @@ def score_career(candidate: dict) -> dict:
     product_co_roles = 0
     service_co_roles = 0
     for role in career:
-        company = role.get("company", "")
-        industry = role.get("industry", "").lower()
+        if not isinstance(role, dict):
+            continue
+        company = role.get("company") or ""
+        industry = (role.get("industry") or "").lower()
         if _is_consulting_company(company):
             service_co_roles += 1
         elif industry in ("it services", "consulting", "staffing"):
@@ -218,10 +256,10 @@ def score_career(candidate: dict) -> dict:
     # ── 8. Job hopping penalty (0 to -7) ─────────────────────
     hopping_penalty = 0.0
     if len(career) >= 2:
-        durations = [r.get("duration_months", 0) for r in career]
+        durations = [r.get("duration_months") or 0 if isinstance(r, dict) else 0 for r in career]
         # Exclude current role from avg tenure calc
         non_current = [
-            d for r, d in zip(career, durations) if not r.get("is_current", False)
+            d for r, d in zip(career, durations) if isinstance(r, dict) and not r.get("is_current", False)
         ]
         if non_current:
             avg_tenure = sum(non_current) / len(non_current)

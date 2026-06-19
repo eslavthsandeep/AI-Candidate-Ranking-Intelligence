@@ -48,6 +48,7 @@ class RedrobRanker {
         this.statShortlisted = document.getElementById('stat-shortlisted');
         this.statAvgScore = document.getElementById('stat-avg-score');
         this.statHoneypots = document.getElementById('stat-honeypots');
+        this.statDisqualified = document.getElementById('stat-disqualified');
         
         // Controls / Search
         this.searchInput = document.getElementById('search-input');
@@ -450,6 +451,9 @@ class RedrobRanker {
         this.animateCountUp(this.statTotal, stats.total_processed, 1200);
         this.animateCountUp(this.statShortlisted, stats.shortlisted, 1200);
         this.animateCountUp(this.statHoneypots, stats.honeypots_detected, 1200);
+        if (this.statDisqualified) {
+            this.animateCountUp(this.statDisqualified, stats.disqualified_count || 0, 1200);
+        }
         
         // Float values get formatted directly
         if (this.statAvgScore) {
@@ -462,68 +466,84 @@ class RedrobRanker {
         if (!this.rankingTbody) return;
         this.rankingTbody.innerHTML = '';
         
-        candidates.forEach(c => {
-            const tr = document.createElement('tr');
-            tr.setAttribute('data-id', c.candidate_id);
-            tr.setAttribute('data-search', `${c.name.toLowerCase()} ${c.title.toLowerCase()} ${c.skills.join(' ').toLowerCase()}`);
-            
-            // Medal styles for top 3
-            let rankBadgeHtml = `<span class="rank-badge">${c.rank}</span>`;
-            if (c.rank <= 3) {
-                rankBadgeHtml = `<span class="rank-badge rank-${c.rank}">${c.rank}</span>`;
+        try {
+            if (!candidates || !Array.isArray(candidates) || candidates.length === 0) {
+                this.rankingTbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:2rem;">No candidates were shortlisted.</td></tr>`;
+                return;
             }
-            
-            // Score colors
-            const scorePct = (c.score * 100).toFixed(1);
-            let barColor = 'var(--success)';
-            let scoreClass = 'pill-success';
-            if (scorePct < 75) {
-                barColor = 'var(--warning)';
-                scoreClass = 'pill-warning';
-            }
-            if (scorePct < 50) {
-                barColor = 'var(--danger)';
-                scoreClass = 'pill-danger';
-            }
-            
-            // Verdict pill
-            let recHtml = `<span class="pill pill-success">STRONG YES</span>`;
-            if (scorePct < 85) recHtml = `<span class="pill pill-primary">YES</span>`;
-            if (scorePct < 70) recHtml = `<span class="pill pill-warning">MAYBE</span>`;
-            if (scorePct < 50) recHtml = `<span class="pill pill-danger">NO</span>`;
-            if (c.honeypot_flag) recHtml = `<span class="pill pill-danger">HONEYPOT</span>`;
-            
-            // Limit shown skills in the table
-            const maxSkills = 4;
-            const truncatedSkills = c.skills.slice(0, maxSkills);
-            let skillsHtml = truncatedSkills.map(s => `<span class="pill pill-primary">${s}</span>`).join('');
-            if (c.skills.length > maxSkills) {
-                skillsHtml += `<span class="pill pill-secondary">+${c.skills.length - maxSkills}</span>`;
-            }
-            
-            tr.innerHTML = `
-                <td class="th-rank">${rankBadgeHtml}</td>
-                <td class="score-cell">
-                    <span class="mono" style="font-weight:600; color:${barColor};">${scorePct}%</span>
-                    <div class="mini-score-bar">
-                        <div class="mini-score-fill" style="width: ${scorePct}%; background: ${barColor};"></div>
-                    </div>
-                </td>
-                <td>
-                    <div style="font-weight: 600; color: var(--text-primary);">${c.name}</div>
-                    <div class="mono" style="font-size: 0.8rem; color: var(--text-muted);">${c.candidate_id}</div>
-                </td>
-                <td style="font-weight:500;">${c.title}</td>
-                <td class="mono" style="font-weight:500;">${c.years_of_experience}y</td>
-                <td>${c.location || 'Unknown'}</td>
-                <td>${skillsHtml}</td>
-                <td>${recHtml}</td>
-            `;
-            
-            // Clicking row launches detailed modal
-            tr.addEventListener('click', () => this.showCandidateDetails(c));
-            this.rankingTbody.appendChild(tr);
-        });
+
+            candidates.forEach(c => {
+                const tr = document.createElement('tr');
+                tr.setAttribute('data-id', c.candidate_id);
+                
+                const nameStr = (c.name || 'Unknown').toLowerCase();
+                const titleStr = (c.title || 'Unknown').toLowerCase();
+                const skillsList = Array.isArray(c.skills) ? c.skills : [];
+                const skillsSearchStr = skillsList.join(' ').toLowerCase();
+                tr.setAttribute('data-search', `${nameStr} ${titleStr} ${skillsSearchStr}`);
+                
+                // Medal styles for top 3
+                let rankBadgeHtml = `<span class="rank-badge">${c.rank}</span>`;
+                if (c.rank <= 3) {
+                    rankBadgeHtml = `<span class="rank-badge rank-${c.rank}">${c.rank}</span>`;
+                }
+                
+                // Score colors
+                const scorePct = ((c.score || 0) * 100).toFixed(1);
+                let barColor = 'var(--success)';
+                if (scorePct < 75) {
+                    barColor = 'var(--warning)';
+                }
+                if (scorePct < 50) {
+                    barColor = 'var(--danger)';
+                }
+                
+                // Verdict pill — use server verdict when available
+                const verdict = (c.verdict || '').toUpperCase();
+                let recHtml = `<span class="pill pill-warning">MAYBE</span>`;
+                if (verdict.includes('STRONG YES')) recHtml = `<span class="pill pill-success">STRONG YES</span>`;
+                else if (verdict === 'YES') recHtml = `<span class="pill pill-primary">YES</span>`;
+                else if (verdict === 'MAYBE') recHtml = `<span class="pill pill-warning">MAYBE</span>`;
+                else if (verdict.includes('NO') || verdict.includes('DISQUAL')) recHtml = `<span class="pill pill-danger">NO</span>`;
+                if (c.honeypot_flag) recHtml = `<span class="pill pill-danger">HONEYPOT</span>`;
+                else if (c.hard_disqualified) recHtml = `<span class="pill pill-danger">DISQUALIFIED</span>`;
+                
+                // Limit shown skills in the table
+                const maxSkills = 4;
+                const truncatedSkills = skillsList.slice(0, maxSkills);
+                let skillsHtml = truncatedSkills.map(s => `<span class="pill pill-primary">${s}</span>`).join('');
+                if (skillsList.length > maxSkills) {
+                    skillsHtml += `<span class="pill pill-secondary">+${skillsList.length - maxSkills}</span>`;
+                }
+                
+                tr.innerHTML = `
+                    <td class="th-rank">${rankBadgeHtml}</td>
+                    <td class="score-cell">
+                        <span class="mono" style="font-weight:600; color:${barColor};">${scorePct}%</span>
+                        <div class="mini-score-bar">
+                            <div class="mini-score-fill" style="width: ${scorePct}%; background: ${barColor};"></div>
+                        </div>
+                    </td>
+                    <td>
+                        <div style="font-weight: 600; color: var(--text-primary);">${c.name || 'Unknown'}</div>
+                        <div class="mono" style="font-size: 0.8rem; color: var(--text-muted);">${c.candidate_id}</div>
+                    </td>
+                    <td style="font-weight:500;">${c.title || 'Unknown'}</td>
+                    <td class="mono" style="font-weight:500;">${c.years_of_experience || 0}y</td>
+                    <td>${c.location || 'Unknown'}</td>
+                    <td>${skillsHtml}</td>
+                    <td>${recHtml}</td>
+                `;
+                
+                // Clicking row launches detailed modal
+                tr.addEventListener('click', () => this.showCandidateDetails(c));
+                this.rankingTbody.appendChild(tr);
+            });
+        } catch (err) {
+            console.error("Error rendering results table:", err);
+            this.showToast("Rendering error: " + err.message, "error");
+            this.rankingTbody.innerHTML = `<tr><td colspan="8" style="text-align:center; color:var(--danger); padding:2rem;">Error rendering results table: ${err.message}</td></tr>`;
+        }
         
         // Reset search field
         if (this.searchInput) this.searchInput.value = '';

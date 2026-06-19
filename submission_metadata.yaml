@@ -1,0 +1,45 @@
+# Redrob Hackathon — Submission Metadata
+team_name: "team_antigravity"
+
+primary_contact:
+  name: "Antigravity Team"
+  email: "contact@antigravity.ai"
+  phone: "+91-9876543210"
+
+team_members:
+  - name: "Antigravity AI"
+    email: "contact@antigravity.ai"
+    role: "ML Lead"
+
+github_repo: "https://github.com/eslavthsandeep/AI-Candidate-Ranking-Intelligence"
+sandbox_link: "http://127.0.0.1:5000"
+
+reproduce_command: "python rank.py --candidates ./[PUB] India_runs_data_and_ai_challenge/[PUB] India_runs_data_and_ai_challenge/India_runs_data_and_ai_challenge/candidates.jsonl --out team_antigravity.csv"
+
+compute:
+  platform: "Local Windows Machine"
+  cpu_cores: 8
+  ram_gb: 16
+  python_version: "3.11.0"
+  os: "Windows 11"
+  uses_gpu_for_inference: false
+  has_network_during_ranking: false
+  pre_computation_required: false
+  pre_computation_time_minutes: 0
+
+ai_tools_used:
+  - "Gemini"
+  - "Cursor"
+
+ai_usage_summary: |
+  Used Gemini 3.5 Flash for code refactoring, implementing cosine similarity calculations, and coding JD disqualifier rules. No candidate data was sent to any external LLMs during inference.
+
+methodology_summary: |
+  A hybrid ranker combining rule-based recruiter heuristics with local TF-IDF cosine similarity for semantic job description matching. Enforces strict JD disqualifiers (such as job-hopping, consulting-only background, and non-NLP CVs) and robust honeypot traps.
+
+declarations:
+  read_submission_spec: true
+  code_is_original_work: true
+  no_collusion: true
+  honeypot_check_done: true
+  reproduction_tested: true

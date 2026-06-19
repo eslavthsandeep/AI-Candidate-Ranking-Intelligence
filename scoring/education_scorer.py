@@ -1,58 +1,80 @@
 import logging
+import sys
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from config import (
+    DEGREE_WEIGHTS,
+    RELEVANT_FIELDS,
+    TIER_SCORES,
+    RELEVANT_CERTIFICATIONS,
+)
 
 logger = logging.getLogger(__name__)
 
+
 def score_education(candidate):
     """
-    Score education and certifications.
+    Score education and certifications using config tables.
     Returns normalized score 0-100.
     """
-    education = candidate.get('education', [])
-    certifications = candidate.get('certifications', [])
+    if not isinstance(candidate, dict):
+        return 0
+    education = candidate.get('education') or []
+    if not isinstance(education, list):
+        education = []
+    certifications = candidate.get('certifications') or []
+    if not isinstance(certifications, list):
+        certifications = []
     
     score = 0
+    best_edu_score = 0
     
-    relevant_fields = ['computer science', 'machine learning', 'artificial intelligence', 'data science', 
-                       'statistics', 'mathematics', 'information technology', 'electronics', 'ece']
-                       
     for edu in education:
-        field = edu.get('field_of_study', '').lower()
-        is_relevant = any(f in field for f in relevant_fields)
+        if not isinstance(edu, dict):
+            continue
+        edu_score = 0
+        field = (edu.get('field_of_study') or '').lower()
+        is_relevant = any(f in field for f in RELEVANT_FIELDS)
         
-        degree = edu.get('degree', '').lower()
+        degree = (edu.get('degree') or '').lower()
+        
+        # Use config DEGREE_WEIGHTS for degree scoring
         degree_score = 0
-        if 'phd' in degree or 'doctor' in degree:
-            degree_score = 25
-        elif 'm.tech' in degree or 'ms' in degree or 'master' in degree:
-            degree_score = 20
-        elif 'b.tech' in degree or 'be' in degree or 'bs' in degree or 'bachelor' in degree:
-            degree_score = 15
-        elif 'mba' in degree:
-            degree_score = 5
-            
+        for deg_key, deg_val in DEGREE_WEIGHTS.items():
+            if deg_key in degree:
+                degree_score = max(degree_score, deg_val)
+                
         if is_relevant:
-            degree_score *= 1.2
+            degree_score = int(degree_score * 1.2)
             
-        tier = edu.get('tier', 'unknown').lower()
-        tier_score = 5
-        if 'tier_1' in tier:
-            tier_score = 20
-        elif 'tier_2' in tier:
-            tier_score = 15
-        elif 'tier_3' in tier:
-            tier_score = 8
-        elif 'tier_4' in tier:
-            tier_score = 3
+        # Use config TIER_SCORES for institution tier
+        tier = (edu.get('tier') or 'unknown').lower()
+        tier_score = TIER_SCORES.get(tier, TIER_SCORES.get('unknown', 5))
             
-        score += degree_score + tier_score
+        edu_score = degree_score + tier_score
+        best_edu_score = max(best_edu_score, edu_score)
+    
+    score += best_edu_score
         
-    # Certifications
-    ai_certs = ['aws ml', 'gcp ml', 'tensorflow', 'deep learning', 'machine learning', 'nlp']
+    # Certifications — use config RELEVANT_CERTIFICATIONS
+    cert_score = 0
     for cert in certifications:
-        name = cert.get('name', '').lower()
-        if any(c in name for c in ai_certs):
-            score += 10
-        else:
-            score += 2
-            
+        if not isinstance(cert, dict):
+            continue
+        name = (cert.get('name') or '').lower()
+        matched = False
+        for cert_key, cert_val in RELEVANT_CERTIFICATIONS.items():
+            if cert_key in name:
+                cert_score += cert_val
+                matched = True
+                break
+        if not matched:
+            cert_score += 2  # generic certification
+    
+    # Cap cert contribution to avoid inflation
+    cert_score = min(cert_score, 30)
+    score += cert_score
+        
     return min(100, score)

@@ -217,8 +217,9 @@ def score_behavioral(candidate: dict) -> dict:
     for m in multipliers.values():
         combined_mult *= m
 
-    # Clamp multiplier to [0.3, 1.5]
-    combined_mult = max(0.3, min(combined_mult, 1.5))
+    # Clamp multiplier to [0.6, 1.3] — tight enough to be a tie-breaker,
+    # not so wide that it overrides strong credentials
+    combined_mult = max(0.6, min(combined_mult, 1.3))
 
     # Normalize raw score (max possible ~120 → 100)
     max_raw = 120.0

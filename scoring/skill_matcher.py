@@ -20,20 +20,40 @@ from config import (
     NICE_TO_HAVE_CLUSTERS,
     SKILL_TO_CLUSTER,
     PROFICIENCY_MULTIPLIER,
+    TITLE_TIERS,
+    TITLE_SKILL_MULTIPLIER,
 )
 
 
-def _canonicalize_skill(name: str) -> str:
+def _title_tier(title: str | None) -> int:
+    if not title:
+        return 5
+    t = title.strip().lower()
+    if t in TITLE_TIERS:
+        return TITLE_TIERS[t]
+    for pattern, tier in TITLE_TIERS.items():
+        if pattern in t:
+            return tier
+    return 5
+
+
+def _canonicalize_skill(name: str | None) -> str:
     """Map a raw skill name to its canonical form via aliases."""
+    if not name:
+        return ""
     lower = name.strip().lower()
     return SKILL_ALIASES.get(lower, lower)
 
 
-def _proficiency_mult(proficiency: str) -> float:
+def _proficiency_mult(proficiency: str | None) -> float:
+    if not proficiency:
+        return 0.5
     return PROFICIENCY_MULTIPLIER.get(proficiency.strip().lower(), 0.5)
 
 
-def _duration_mult(duration_months: int | float) -> float:
+def _duration_mult(duration_months: int | float | None) -> float:
+    if duration_months is None:
+        return 0.8
     if duration_months > 24:
         return 1.2
     elif duration_months >= 12:
@@ -42,7 +62,9 @@ def _duration_mult(duration_months: int | float) -> float:
         return 0.8
 
 
-def _endorsement_boost(endorsements: int) -> float:
+def _endorsement_boost(endorsements: int | None) -> float:
+    if endorsements is None:
+        return 1.0
     return 1.1 if endorsements > 20 else 1.0
 
 
@@ -57,11 +79,25 @@ def score_skills(candidate: dict) -> dict:
         - matched_skills (list of matched skill names)
         - must_have_count (int: number of must-have clusters covered)
     """
-    skills = candidate.get("skills", [])
-    assessment_scores = (
-        candidate.get("redrob_signals", {})
-        .get("skill_assessment_scores", {})
-    )
+    if not isinstance(candidate, dict):
+        return {
+            "score": 0.0,
+            "must_have_coverage": {},
+            "nice_to_have_coverage": {},
+            "matched_skills": [],
+            "must_have_count": 0,
+            "title_tier": 5,
+            "title_skill_multiplier": 0.25,
+        }
+    skills = candidate.get("skills") or []
+    if not isinstance(skills, list):
+        skills = []
+    signals = candidate.get("redrob_signals") or {}
+    if not isinstance(signals, dict):
+        signals = {}
+    assessment_scores = signals.get("skill_assessment_scores") or {}
+    if not isinstance(assessment_scores, dict):
+        assessment_scores = {}
 
     # Track best score per cluster
     must_have_scores: dict[str, float] = {c: 0.0 for c in MUST_HAVE_CLUSTERS}
@@ -69,7 +105,9 @@ def score_skills(candidate: dict) -> dict:
     matched_skills: list[str] = []
 
     for skill_entry in skills:
-        raw_name = skill_entry.get("name", "")
+        if not isinstance(skill_entry, dict):
+            continue
+        raw_name = skill_entry.get("name") or ""
         canonical = _canonicalize_skill(raw_name)
 
         if canonical not in SKILL_TO_CLUSTER:
@@ -79,15 +117,15 @@ def score_skills(candidate: dict) -> dict:
         matched_skills.append(raw_name)
 
         # Base score from proficiency
-        prof = skill_entry.get("proficiency", "beginner")
+        prof = skill_entry.get("proficiency") or "beginner"
         base = _proficiency_mult(prof)
 
         # Duration multiplier
-        dur = skill_entry.get("duration_months", 0)
+        dur = skill_entry.get("duration_months") or 0
         dur_m = _duration_mult(dur)
 
         # Endorsement boost
-        endorse = skill_entry.get("endorsements", 0)
+        endorse = skill_entry.get("endorsements") or 0
         endorse_m = _endorsement_boost(endorse)
 
         # Assessment score integration
@@ -148,10 +186,18 @@ def score_skills(candidate: dict) -> dict:
 
     final_score = min(must_have_total + nice_total, 100.0)
 
+    # Scale skill score by current title relevance to the JD
+    current_title = (candidate.get("profile") or {}).get("current_title")
+    tier = _title_tier(current_title)
+    title_mult = TITLE_SKILL_MULTIPLIER.get(tier, 0.25)
+    final_score = min(final_score * title_mult, 100.0)
+
     return {
         "score": round(final_score, 2),
         "must_have_coverage": must_have_scores,
         "nice_to_have_coverage": nice_have_scores,
         "matched_skills": matched_skills,
         "must_have_count": must_have_count,
+        "title_tier": tier,
+        "title_skill_multiplier": title_mult,
     }

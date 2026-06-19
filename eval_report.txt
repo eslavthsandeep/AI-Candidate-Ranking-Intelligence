@@ -1,0 +1,96 @@
+<USER_REQUEST>
+Hackathon Evaluation Report: Redrob AI Candidate Ranking System
+Evaluator role: Senior Head, India Runs Data & AI Challenge
+Project: AI-Hacks (Redrob AI — Candidate Ranking Intelligence)
+Evaluation date: June 12, 2026
+
+Executive Summary
+Dimension	Score (10)	Verdict
+Ranking quality (core outcome)
+6.5
+Good instincts; not yet competition-winning
+JD understanding
+7.0
+Strong manual encoding; not dynamic
+Multi-signal integration
+8.0
+Best part of the project
+Honeypot / trap handling
+6.0
+Present but incomplete
+Reasoning & recruiter trust
+5.5
+Templates contradict scores
+Engineering & reproducibility
+7.5
+Clean pipeline; missing submission artifacts
+AI authenticity (hackathon theme)
+4.5
+Rule-based, not AI-native
+Submission completeness
+4.0
+Missing PDF, metadata, sandbox
+Overall: 6.2 / 10 — Strong engineering prototype, not yet a winning submission.
+
+You have a real, runnable system with thoughtful domain modeling. The gap is not “does it work?” but “does it beat other teams on hidden ranking quality?” and “does the submission package meet every gate?”
+
+1. What the Challenge Actually Judges
+The brief says architecture is free; outcome is what gets judged. In practice, organizers typically score:
+
+Hidden ranking quality
+Top weight ~50-60%
+Honeypot rejection
+Reasoning quality
+~15-20%
+Reproducibility + constraints
+~15%
+Deck + demo + repo polish
+~15-20%
+Your README correctly targets 100K candidates, CPU-only, <16GB RAM, <5 min. That constraint-aware design is a real strength.
+
+2. What You Built Well (Competitive Advantages)
+2.1 Multi-stage funnel architecture
+graph TD
+    A["100K Candidates JSONL / JSON"] --> B["Stage 1: Fast Pre-Filter (~2s)<br/>Title & skill keyword gate via config taxonomy"]
+    B --> C["~4,000 - 6,000 Candidates"]
+    C --> D["Stage 2: Multi-Dimensional Scoring (~30s)<br/>Skills, Career, Trajectory, Behavioral, Education"]
+    ...
+    H --> I["Top 100 CSV Output & Dashboard Render"]
+Streaming JSONL processing scales to 10
+<truncated 9071 bytes>
+ne-liner
+Add 5–10 pytest cases: honeypot profiles, tie-break, consulting penalty
+README section: “How we validated on sample + full dataset”
+In dashboard: show honeypot count excluded prominently
+7. Submission Checklist (Copy Before Upload)
+[ ] team_xxx.csv — 100 rows, valid format, scores non-increasing
+[ ] submission_metadata.yaml — complete
+[ ] PDF deck uploaded
+[ ] GitHub repo public/accessible
+[ ] Sandbox link works (sample upload → top 10 in <30s)
+[ ] reproduce_command tested on clean machine
+[ ] README has dataset download instructions
+[ ] declarations.honeypot_check_done = true
+[ ] AI tools honestly declared (Cursor/Claude etc.)
+8. Interview Prep (Stage 5)
+Judges will likely ask:
+
+Why no LLM at inference? → Answer: compute constraints; hybrid with offline embeddings; deterministic reproducibility.
+How do you beat keyword stuffers? → Walk through honeypot checks + title tier + assessment cross-validation.
+Why weight career 40% over skills 35%? → Have ablation ready (even manual: “we tried 50/30 and top 20 shifted”).
+Show a mistake your system makes → Honesty wins; explain the fix (disqualifier gate).
+Why should Redrob hire your approach? → Trustworthy shortlist + explainable dimensions + platform signals.
+9. Final Verdict
+You are in the top half of typical hackathon submissions on engineering quality, but not yet in the winner tier because:
+
+Submission package is incomplete (no PDF, metadata, sandbox).
+Ranking logic has disqualifier and honeypot holes that hidden eval will exploit.
+Reasoning does not yet earn recruiter trust.
+“AI” story is weaker than teams shipping semantic/hybrid rankers.
+Realistic path to win: Complete P0 in 1 day, P1 in 2–3 days, add lightweight embeddings (P2) if time allows. Your foundation is solid — the next 20% of work on ranking correctness and submission packaging determines placement, not a rewrite.
+
+
+</USER_REQUEST>
+<ADDITIONAL_METADATA>
+The current local time is: 2026-06-12T21:48:22+05:30.
+</ADDITIONAL_METADATA>

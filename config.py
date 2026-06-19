@@ -12,15 +12,79 @@ import os
 # DATA PATHS
 # ─────────────────────────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(
+
+# Challenge dataset folder (nested publish bundle from organizers)
+_CHALLENGE_ROOT = os.path.join(
     BASE_DIR,
     "[PUB] India_runs_data_and_ai_challenge",
     "[PUB] India_runs_data_and_ai_challenge",
     "India_runs_data_and_ai_challenge",
 )
+# Flat data/ alias — place candidates.jsonl here OR use challenge folder
+_DATA_FLAT = os.path.join(BASE_DIR, "data")
+DATA_DIR = _DATA_FLAT if os.path.isdir(_DATA_FLAT) else _CHALLENGE_ROOT
+
 CANDIDATES_JSONL = os.path.join(DATA_DIR, "candidates.jsonl")
+if not os.path.exists(CANDIDATES_JSONL):
+    CANDIDATES_JSONL = os.path.join(_CHALLENGE_ROOT, "candidates.jsonl")
+
 SAMPLE_CANDIDATES_JSON = os.path.join(DATA_DIR, "sample_candidates.json")
+if not os.path.exists(SAMPLE_CANDIDATES_JSON):
+    SAMPLE_CANDIDATES_JSON = os.path.join(_CHALLENGE_ROOT, "sample_candidates.json")
+
+VALIDATE_SCRIPT = os.path.join(_CHALLENGE_ROOT, "validate_submission.py")
 DEFAULT_OUTPUT_CSV = os.path.join(BASE_DIR, "submission.csv")
+
+# ─────────────────────────────────────────────────────────────
+# JOB DESCRIPTION (semantic + UI)
+# ─────────────────────────────────────────────────────────────
+JD_PROFILE_TEXT = """
+Senior AI Engineer founding team role at Redrob AI talent intelligence platform.
+Must have production embeddings-based retrieval sentence-transformers OpenAI BGE E5.
+Vector databases hybrid search Pinecone Weaviate Qdrant Milvus FAISS Elasticsearch OpenSearch.
+Strong Python PyTorch machine learning engineering.
+Evaluation frameworks for ranking NDCG MRR MAP A/B testing recommendation systems.
+Nice to have LLM fine-tuning LoRA QLoRA PEFT learning-to-rank XGBoost HR-tech marketplace.
+Distributed systems large-scale inference MLOps open source contributions.
+Disqualify pure academic research without production shipping LangChain wrappers only
+consulting-only careers job hopping CV speech robotics without NLP information retrieval.
+Location Pune Noida India hybrid 5-9 years experience product company background.
+"""
+
+JD_TERM_WEIGHTS: dict[str, float] = {
+    "embedding": 3.0,
+    "embeddings": 3.0,
+    "sentence-transformers": 3.0,
+    "sentence transformers": 3.0,
+    "retrieval": 3.0,
+    "semantic search": 2.5,
+    "vector": 2.0,
+    "pinecone": 2.0,
+    "weaviate": 2.0,
+    "qdrant": 2.0,
+    "milvus": 2.0,
+    "faiss": 2.0,
+    "elasticsearch": 2.0,
+    "opensearch": 2.0,
+    "python": 2.0,
+    "pytorch": 2.0,
+    "ranking": 2.5,
+    "ndcg": 2.0,
+    "mrr": 2.0,
+    "a/b testing": 1.5,
+    "recommendation": 1.5,
+    "learning to rank": 2.0,
+    "nlp": 2.0,
+    "information retrieval": 2.5,
+    "production": 2.0,
+    "shipped": 2.0,
+    "deployed": 1.5,
+    "fine-tuning": 1.0,
+    "lora": 1.0,
+    "mlops": 1.0,
+    "hr tech": 0.8,
+    "talent intelligence": 0.8,
+}
 
 # ─────────────────────────────────────────────────────────────
 # SKILL ALIASES  (lower-cased → canonical form)
@@ -61,6 +125,7 @@ SKILL_ALIASES: dict[str, str] = {
     "ir": "information retrieval",
     "search": "search systems",
     "search systems": "search systems",
+    "search system": "search systems",
     "search engine": "search systems",
     "search engineering": "search systems",
     "elasticsearch": "elasticsearch",
@@ -72,6 +137,7 @@ SKILL_ALIASES: dict[str, str] = {
     # Embeddings & Retrieval
     "sentence-transformers": "sentence transformers",
     "sentence transformers": "sentence transformers",
+    "sentence transformer": "sentence transformers",
     "sbert": "sentence transformers",
     "openai embeddings": "embeddings",
     "embeddings": "embeddings",
@@ -88,6 +154,8 @@ SKILL_ALIASES: dict[str, str] = {
     "vector search": "semantic search",
     "dense retrieval": "semantic search",
     "retrieval": "retrieval systems",
+    "retrieval systems": "retrieval systems",
+    "retrieval system": "retrieval systems",
     "rag": "retrieval augmented generation",
     "retrieval augmented generation": "retrieval augmented generation",
     "retrieval-augmented generation": "retrieval augmented generation",
@@ -131,9 +199,13 @@ SKILL_ALIASES: dict[str, str] = {
     "map": "ranking evaluation",
     "mean average precision": "ranking evaluation",
     "mean reciprocal rank": "ranking evaluation",
+    "ranking evaluation": "ranking evaluation",
+    "ranking evaluations": "ranking evaluation",
     "a/b testing": "a/b testing",
     "ab testing": "a/b testing",
     "ranking": "ranking systems",
+    "ranking systems": "ranking systems",
+    "ranking system": "ranking systems",
     "learning to rank": "learning to rank",
     "learning-to-rank": "learning to rank",
     "ltr": "learning to rank",
@@ -270,6 +342,8 @@ SKILL_ALIASES: dict[str, str] = {
     "w&b": "experiment tracking",
     "neptune": "experiment tracking",
     "comet": "experiment tracking",
+    "experiment tracking": "experiment tracking",
+    "experiment-tracking": "experiment tracking",
 
     # Open source
     "open source": "open source",
@@ -375,6 +449,7 @@ TITLE_TIERS: dict[str, int] = {
     "ranking engineer": 1,
     "retrieval engineer": 1,
     "recommendation engineer": 1,
+    "recommendation systems engineer": 1,
     "applied scientist": 1,
     "applied ml scientist": 1,
     "ml scientist": 1,
@@ -555,25 +630,31 @@ AI_ML_KEYWORDS: set[str] = {
 # Keywords to search in summaries and headlines for pre-filter
 PREFILTER_TITLE_KEYWORDS: set[str] = {
     "ai", "ml", "machine learning", "deep learning", "data",
-    "engineer", "developer", "scientist", "nlp", "research",
-    "software", "backend", "platform", "analytics", "search",
+    "scientist", "nlp", "research",
+    "analytics", "search",
     "recommendation", "ranking", "retrieval", "embedding",
-    "tech", "technical", "architect", "lead", "principal",
-    "devops", "sre", "cloud", "infrastructure",
-    "full stack", "fullstack",
 }
 
 # ─────────────────────────────────────────────────────────────
 # SCORING WEIGHTS
 # ─────────────────────────────────────────────────────────────
 COMPOSITE_WEIGHTS = {
-    "skill_match":  0.35,
-    "career":       0.25,
-    "behavioral":   0.15,
-    "education":    0.10,
-    # The remaining 0.15 is trajectory, embedded in career_scorer
+    "skill_match":  0.30,
+    "career":       0.35,
+    "behavioral":   0.12,
+    "education":    0.08,
+    "semantic":     0.15,
 }
 # Behavioral multiplier is applied on top of the weighted sum.
+
+# Title tier → skill score multiplier (penalize misaligned titles)
+TITLE_SKILL_MULTIPLIER: dict[int, float] = {
+    1: 1.0,
+    2: 1.0,
+    3: 0.85,
+    4: 0.45,
+    5: 0.25,
+}
 
 # ─────────────────────────────────────────────────────────────
 # PROFICIENCY MULTIPLIERS

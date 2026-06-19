@@ -1,105 +1,143 @@
-# Redrob AI Recruitment Intelligence
+# Redrob AI — Candidate Ranking Intelligence
 
-An elite AI-powered candidate evaluation and ranking engine designed for the **India Runs Data & AI Challenge**. The system filters, scores, and shortlists the **top 100 candidates** from a pool of **100,000+ profiles** for a **Senior AI Engineer** role, executing within a strict compute constraint (CPU-only, <16GB RAM) and avoiding complex impossible trap profiles (honeypots).
+Hybrid recruiter ranking engine for the **India Runs Data & AI Challenge**. Filters, scores, and shortlists the **top 100** candidates from **100,000+** profiles for a **Senior AI Engineer** role — CPU-only, &lt;16GB RAM, &lt;5 min, with honeypot detection and JD disqualifier gates.
 
 ---
 
-## 🚀 Architecture Overview (The Pipeline Funnel)
+## What's New (Hackathon-Ready & Optimized)
 
-To rank 100K profiles within a 5-minute CPU budget, the pipeline operates as a memory-efficient multi-stage funnel:
+- **Phase 3 Kaggle Grandmaster Optimizations** — Complete defensive programming against `NoneType` and structure failures, canonical skill alias expansion (e.g. `retrieval systems`, `experiment tracking`), and tightened prefilter keyword targeting.
+- **JD disqualifier gate** — hard/soft penalties for consulting-only, non-tech stuffers, CV-without-NLP, no production signals.
+- **Semantic JD fit scorer** — narrative alignment without GPU or network.
+- **7-check honeypot detector** — expanded trap detection using full config taxonomy.
+- **Title-tier skill weighting** — Civil Engineer / HR Manager cannot rank on keywords alone.
+- **Evidence-linked reasoning** — Verdict + Strengths + Risks (no false "Exceptional fit").
+- **Submission kit** — `submission_metadata.yaml`, `scripts/run_submission.*`, `docs/APPROACH.md` (convert to PDF).
+
+---
+
+## Architecture
 
 ```mermaid
 graph TD
-    A["100K Candidates JSONL / JSON"] --> B["Stage 1: Fast Pre-Filter (~2s)<br/>Keep relevant tech title/skills. Drop non-tech."]
-    B --> C["~4,000 - 6,000 Candidates"]
-    C --> D["Stage 2: Multi-Dimensional Scoring (~30s)<br/>Skills, Career, Trajectory, Behavioral, Edu"]
-    D --> E["Stage 3: Honeypot Trap Detection (~2s)<br/>Expose impossible timelines & stuffing"]
-    E --> F["Stage 4: Composite Scoring & Normalization"]
-    F --> G["Stage 5: Final Sorting & Tie-Breakers"]
-    G --> H["Stage 6: AI Reasoning Generation (~10s)"]
-    H --> I["Top 100 CSV Output & Dashboard Render"]
+    A["100K Candidates JSONL"] --> B["Stage 1: Pre-Filter"]
+    B --> C["Stage 2: Skill + Career + Behavioral + Education + Semantic"]
+    C --> D["Stage 3: Honeypot Detection"]
+    D --> E["Stage 4: JD Disqualifier Gate"]
+    E --> F["Stage 5: Composite Score + Behavioral Bonus"]
+    F --> G["Stage 6: Sort + Tie-Break"]
+    G --> H["Stage 7: Reasoning + CSV Export"]
 ```
 
----
+### Scoring Weights
 
-## 🛠️ Components & Scoring Dimensions
-
-### 1. Semantic Skill Matcher (`scoring/skill_matcher.py`)
-* **Semantic Clusters:** Groups skills canonicalized through an extensive list of aliases (e.g. `SBERT` $\rightarrow$ `sentence-transformers`, `GenAI` $\rightarrow$ `large language models`).
-* **Evaluation:** Scores Must-Haves (Embeddings, Vector Databases, Python, Ranking Evaluation) and Nice-to-Haves (Fine-tuning, Learning-to-Rank, MLOps, Distributed Systems).
-* **Adjusters:** Applies multipliers for expertise proficiency, durations, endorsements count, and Redrob skill assessment scores.
-
-### 2. Career Scorer & Trajectory (`scoring/career_scorer.py`)
-* **Title Tiers:** Matches titles to Tiers 1-5 (Tier 1 AI/ML Engineer $\rightarrow$ Tier 5 Non-Tech).
-* **Industry & Domain:** Prioritizes product company backgrounds. Applies a **penalty (-10.0)** for candidates whose entire career is spent at consulting IT service companies (TCS, Infosys, Wipro, Accenture, etc.).
-* **Shipment Signals:** Searches description text for production deployment signals (e.g., `production`, `shipped`, `scale`, `latency`, `latency`, `throughput`).
-* **Hopping Check:** Penalizes job-hoppers with an average tenure of under 18–24 months.
-
-### 3. Behavioral Scorer (`scoring/behavioral_scorer.py`)
-* **Engagement Signals:** Evaluates candidate response rate, response times, profile completeness, open-to-work flag, interview completion rate, notice period, and location (relocation or residency in India).
-* **Multiplier:** Outputs a combined multiplier clamped between `[0.3, 1.5]` that scales the candidate's final ranking.
-
-### 4. Honeypot Trap Detector (`scoring/honeypot_detector.py`)
-* **Checks:** Catches impossible timeline signals, such as claiming 8 years tenure at a 3-year-old company, claiming 10+ expert skills with 0 months duration, graduation year after career start, or expert proficiency claims backed by poor test scores (<30).
-* **Action:** Flags honeypots and instantly zeros out their composite score to exclude them from the shortlist.
-
-### 5. Composite Scoring & Tie-Breaks (`scoring/composite.py`)
-* **Composite Weighting:** Combines dimensions: `Skill Match (35%)`, `Career & Trajectory (40%)`, `Behavioral Score (15%)`, `Education & Certifications (10%)`.
-* **Tie-Breaker:** In case of equal scores, ranks candidates alphabetically by `candidate_id` in ascending order (per competition rules).
-
-### 6. AI Reasoning Synopsis (`scoring/reasoning.py`)
-* **Dynamic Generation:** Produces unique, non-templated candidate summaries connecting candidate achievements/gaps directly to the JD requirements.
+| Dimension | Weight |
+|-----------|--------|
+| Skill clusters | 30% |
+| Career & trajectory | 35% |
+| Semantic JD fit | 15% |
+| Behavioral | 12% |
+| Education | 8% |
 
 ---
 
-## 💻 Web Dashboard Features
+## Quick Start
 
-The web frontend is a single-page SaaS dashboard built using HTML5, Vanilla JavaScript, and responsive CSS (glassmorphic dark theme):
+### 1. Install
 
-* **Interactive Hero:** Ambient mesh floating orb background and gradient animations.
-* **Dynamic JD Analysis:** Collapsible details card rendering core role criteria dynamically from the config.
-* **Stopwatch Timer:** Tracks evaluation elapsed time down to the second in real time during execution.
-* **Real-time Streaming:** Establishes Server-Sent Events (SSE) mapping progress fills, active stages, and processed numbers.
-* **Rankings Table:** Alternating translucent rows, custom badge medals for Ranks 1-3, colored verdict badges (Strong Yes, Yes, Maybe, Honeypot), and animated score bars.
-* **Search Filter:** A debounced client-side filter to query candidate profiles by name, title, or skills instantly.
-* **Details Side Panel / Modal:** Renders the candidate breakdown scores and builds a **vertical career timeline** showing durations, company logs, and descriptions.
-* **Custom Dataset Upload:** A file selector to upload, count, and evaluate any custom candidate JSON or JSONL file.
-* **Output Verification:** Runs `validate_submission.py` checks and renders a checklist of results.
-* **CSV Export:** Downloads the formatted spreadsheet in one click.
-
----
-
-## 🏃 How to Run the Project
-
-### 1. Local Web Dashboard
-1. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-2. Start the Flask server:
-   ```bash
-   python app.py
-   ```
-3. Open your browser and navigate to:
-   ```
-   http://127.0.0.1:5000
-   ```
-
-### 2. Command Line Pipeline
-To run the evaluation CLI tool directly:
 ```bash
-python rank.py --candidates <path_to_dataset> --out <path_to_output_csv>
+pip install -r requirements.txt
+```
 
-# Example (Running sample dataset):
-python rank.py --candidates "./[PUB] India_runs_data_and_ai_challenge/[PUB] India_runs_data_and_ai_challenge/India_runs_data_and_ai_challenge/sample_candidates.json" --out submission.csv
+### 2. Dataset Setup
+
+Download `candidates.jsonl` from the challenge portal and place it in the challenge root directory:
+
+```
+[PUB] India_runs_data_and_ai_challenge/[PUB] India_runs_data_and_ai_challenge/India_runs_data_and_ai_challenge/candidates.jsonl
+```
+
+### 3. Generate Submission
+
+```bash
+# Windows (PowerShell)
+python rank.py --candidates "./[PUB] India_runs_data_and_ai_challenge/[PUB] India_runs_data_and_ai_challenge/India_runs_data_and_ai_challenge/candidates.jsonl" --out team_antigravity.csv
+
+# Directly run pipeline and output to project root
+python rank.py --candidates [path_to_jsonl] --out team_antigravity.csv
+```
+
+### 4. Validate
+
+```bash
+python "./[PUB] India_runs_data_and_ai_challenge/[PUB] India_runs_data_and_ai_challenge/India_runs_data_and_ai_challenge/validate_submission.py" team_antigravity.csv
+```
+
+### 5. Web Dashboard
+
+```bash
+python app.py
+# Open http://127.0.0.1:5000
 ```
 
 ---
 
-## ☁️ Deployment (Ready for Render)
+## Submission Checklist
 
-This project is fully pre-configured to deploy on [Render.com](https://render.com/) or [Railway.app](https://railway.app/):
+- [x] `team_antigravity.csv` — 100 rows, validated successfully (`Submission is valid.`)
+- [x] `docs/APPROACH.md` — document detailing the hybrid ranking approach and design decisions
+- [x] `submission_metadata.yaml` — configured with team name, repo, sandbox URL, and reproduce command
+- [x] Web dashboard running locally and deployable to Render/Railway
+- [x] Public GitHub repository containing clean, optimized codebase without duplicate files
 
-* **Gunicorn Production Server:** Added to `requirements.txt` to handle multi-threaded requests and long processing times.
-* **Procfile:** Configured with worker limits and a 120s timeout extension (`web: gunicorn app:app --workers 1 --threads 4 --timeout 120`).
-* **.gitignore:** Prevents committing large candidate datasets (which exceed GitHub push limits) and local pycache files.
+---
+
+## Project Structure
+
+```
+rank.py                  # CLI entry point
+app.py                   # Flask dashboard
+config.py                # JD taxonomy, weights, aliases
+scoring/
+  skill_matcher.py       # Cluster-based skill scoring
+  career_scorer.py       # Career trajectory + production signals
+  behavioral_scorer.py   # Platform engagement signals
+  semantic_scorer.py     # JD narrative fit
+  disqualifier.py        # JD hard/soft gates
+  honeypot_detector.py   # Fabricated profile detection
+  composite.py           # Weighted aggregation
+  reasoning.py           # Recruiter reasoning strings
+tests/test_scoring.py    # Unit tests
+docs/APPROACH.md         # Deck (convert to PDF)
+submission_metadata.yaml # Portal metadata
+```
+
+---
+
+## Tests
+
+```bash
+python -m unittest tests.test_scoring -v
+```
+
+---
+
+## Deployment
+
+```bash
+gunicorn app:app --workers 1 --threads 4 --timeout 120
+```
+
+See `Procfile` for Render/Railway.
+
+---
+
+## Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| Hybrid rules + semantic overlap | Meets CPU/RAM constraints; interpretable + better than pure keywords |
+| Title-tier skill multiplier | Stops non-tech keyword stuffers reaching top 100 |
+| Disqualifier gate before composite | Enforces JD hard requirements like a recruiter |
+| Deterministic reasoning | Reproducible submissions across runs |
+| Streaming JSONL | Memory-efficient for 100K profiles |
