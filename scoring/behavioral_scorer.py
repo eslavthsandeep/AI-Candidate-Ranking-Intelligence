@@ -15,10 +15,10 @@ from datetime import datetime, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config import PREFERRED_CITIES, PREFERRED_COUNTRY
+from config import PREFERRED_CITIES, PREFERRED_COUNTRY, REFERENCE_DATE
 
 # Reference date for recency calculations
-_NOW = datetime(2026, 6, 8)
+_NOW = REFERENCE_DATE
 
 
 def _parse_date(date_str: str | None) -> datetime | None:
@@ -212,6 +212,138 @@ def score_behavioral(candidate: dict) -> dict:
         multipliers["location"] = 0.95
         raw_points += 3
 
+    # ── 12. Preferred work mode / relocation ──────────────────
+    pwm = signals.get("preferred_work_mode", "").lower()
+    wtr = signals.get("willing_to_relocate", True)
+    if pwm == "remote" and not wtr:
+        multipliers["work_mode"] = 0.85
+        raw_points += 1
+    elif pwm in ("hybrid", "onsite", "flexible") or wtr:
+        multipliers["work_mode"] = 1.05
+        raw_points += 9
+    else:
+        multipliers["work_mode"] = 0.95
+        raw_points += 5
+
+    # ── 13. Profile views (social proof) ──────────────────────
+    views = signals.get("profile_views_received_30d", 0)
+    if views > 50:
+        multipliers["profile_views"] = 1.08
+        raw_points += 8
+    elif views >= 20:
+        multipliers["profile_views"] = 1.03
+        raw_points += 6
+    elif views >= 5:
+        multipliers["profile_views"] = 1.0
+        raw_points += 4
+    else:
+        multipliers["profile_views"] = 0.95
+        raw_points += 1
+
+    # ── 14. Search appearances ────────────────────────────────
+    appearances = signals.get("search_appearance_30d", 0)
+    if appearances > 200:
+        multipliers["search_appearances"] = 1.08
+        raw_points += 8
+    elif appearances >= 50:
+        multipliers["search_appearances"] = 1.03
+        raw_points += 6
+    elif appearances >= 10:
+        multipliers["search_appearances"] = 1.0
+        raw_points += 4
+    else:
+        multipliers["search_appearances"] = 0.95
+        raw_points += 1
+
+    # ── 15. Connection count ──────────────────────────────────
+    connections = signals.get("connection_count", 0)
+    if connections > 500:
+        multipliers["connections"] = 1.06
+        raw_points += 6
+    elif connections >= 150:
+        multipliers["connections"] = 1.02
+        raw_points += 4
+    elif connections >= 50:
+        multipliers["connections"] = 1.0
+        raw_points += 2
+    else:
+        multipliers["connections"] = 0.95
+        raw_points += 0
+
+    # ── 16. Offer acceptance rate ─────────────────────────────
+    oar = signals.get("offer_acceptance_rate", -1)
+    if oar < 0:
+        multipliers["offer_acceptance"] = 1.0
+        raw_points += 4
+    elif oar >= 0.8:
+        multipliers["offer_acceptance"] = 1.06
+        raw_points += 6
+    elif oar >= 0.5:
+        multipliers["offer_acceptance"] = 1.0
+        raw_points += 4
+    else:
+        multipliers["offer_acceptance"] = 0.88
+        raw_points += 1
+
+    # ── 17. Languages (English proficiency) ───────────────────
+    langs = candidate.get("languages") or []
+    english_prof = "none"
+    for l in langs:
+        if isinstance(l, dict):
+            lang_name = (l.get("language") or "").lower()
+            if "english" in lang_name:
+                english_prof = (l.get("proficiency") or "none").lower()
+                break
+
+    if english_prof in ("professional", "native"):
+        multipliers["english"] = 1.05
+        raw_points += 6
+    elif english_prof == "conversational":
+        multipliers["english"] = 1.02
+        raw_points += 4
+    elif english_prof == "basic":
+        multipliers["english"] = 0.95
+        raw_points += 1
+    else:
+        multipliers["english"] = 0.98
+        raw_points += 2
+
+    # ── 18. Applications submitted in last 30 days ───────────────────
+    apps = signals.get("applications_submitted_30d", -1)
+    if apps < 0:
+        multipliers["applications_submitted"] = 1.0
+        raw_points += 2
+    elif apps >= 12:
+        multipliers["applications_submitted"] = 1.05
+        raw_points += 5
+    elif apps >= 5:
+        multipliers["applications_submitted"] = 1.0
+        raw_points += 3
+    elif apps >= 1:
+        multipliers["applications_submitted"] = 0.98
+        raw_points += 1
+    else:
+        multipliers["applications_submitted"] = 0.95
+        raw_points += 0
+
+    # ── 19. Endorsements received ────────────────────────────────────
+    endorsements = signals.get("endorsements_received", -1)
+    if endorsements < 0:
+        multipliers["endorsements_received"] = 1.0
+        raw_points += 2
+    elif endorsements >= 50:
+        multipliers["endorsements_received"] = 1.06
+        raw_points += 6
+    elif endorsements >= 20:
+        multipliers["endorsements_received"] = 1.02
+        raw_points += 4
+    elif endorsements >= 1:
+        multipliers["endorsements_received"] = 1.0
+        raw_points += 2
+    else:
+        multipliers["endorsements_received"] = 0.96
+        raw_points += 0
+
     # ── Compute combined multiplier ──────────────────────────
     combined_mult = 1.0
     for m in multipliers.values():
@@ -221,8 +353,8 @@ def score_behavioral(candidate: dict) -> dict:
     # not so wide that it overrides strong credentials
     combined_mult = max(0.6, min(combined_mult, 1.3))
 
-    # Normalize raw score (max possible ~120 → 100)
-    max_raw = 120.0
+    # Normalize raw score (max possible ~164 → 100)
+    max_raw = 164.0
     final_score = min(raw_points / max_raw * 100.0, 100.0)
 
     return {

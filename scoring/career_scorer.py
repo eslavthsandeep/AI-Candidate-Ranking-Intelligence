@@ -110,6 +110,15 @@ def score_career(candidate: dict) -> dict:
     if not career:
         return _empty_result()
 
+    # Explicitly sort career_history by start_date descending (newest first)
+    def parse_start_date(role):
+        if not isinstance(role, dict):
+            return datetime.min
+        dt = _parse_date(role.get("start_date"))
+        return dt if dt is not None else datetime.min
+
+    career = sorted(career, key=parse_start_date, reverse=True)
+
     # ── 1. Title relevance (0-25) ────────────────────────────
     best_tier = 5
     current_tier = 5
@@ -136,8 +145,8 @@ def score_career(candidate: dict) -> dict:
         tiers = [_get_title_tier(r.get("title", "")) for r in career]
         # Check if trending towards more relevant roles
         # (lower tier number = better)
-        recent_avg = sum(tiers[:min(2, len(tiers))]) / min(2, len(tiers))
-        older_avg = sum(tiers[2:]) / max(len(tiers) - 2, 1) if len(tiers) > 2 else recent_avg
+        recent_avg = sum(tiers[:2]) / 2.0
+        older_avg = sum(tiers[2:]) / (len(tiers) - 2) if len(tiers) > 2 else tiers[1]
 
         if recent_avg < older_avg:
             trajectory_score = 12  # improving trajectory

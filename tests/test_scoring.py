@@ -144,5 +144,76 @@ class TestPipelineIntegration(unittest.TestCase):
             os.unlink(out)
 
 
+class TestPrefilter(unittest.TestCase):
+    def setUp(self):
+        self.pipeline = RankingPipeline()
+
+    def test_prefilter_passes_ai_title(self):
+        cand = {
+            "profile": {"current_title": "Senior Machine Learning Engineer", "summary": ""},
+            "skills": []
+        }
+        self.assertTrue(self.pipeline.prefilter(cand))
+
+    def test_prefilter_passes_ai_skills(self):
+        cand = {
+            "profile": {"current_title": "Software Engineer", "summary": ""},
+            "skills": [{"name": "PyTorch"}]
+        }
+        self.assertTrue(self.pipeline.prefilter(cand))
+
+    def test_prefilter_blocks_boilerplate_ai_summary(self):
+        cand = {
+            "profile": {"current_title": "Sales Associate", "summary": "Experienced sales manager. Believes AI tools could augment operations."},
+            "skills": []
+        }
+        self.assertFalse(self.pipeline.prefilter(cand))
+
+
+class TestEducationScorerGPA(unittest.TestCase):
+    def test_parse_gpa_4_scale(self):
+        from scoring.education_scorer import _parse_grade
+        self.assertAlmostEqual(_parse_grade("3.8/4.0"), 95.0)
+        self.assertAlmostEqual(_parse_grade("3.5/4"), 87.5)
+        self.assertAlmostEqual(_parse_grade("3.6 gpa"), 90.0)
+
+    def test_parse_cgpa_10_scale(self):
+        from scoring.education_scorer import _parse_grade
+        self.assertAlmostEqual(_parse_grade("8.5 cgpa"), 85.0)
+        self.assertAlmostEqual(_parse_grade("9.0/10"), 90.0)
+
+    def test_parse_percentage(self):
+        from scoring.education_scorer import _parse_grade
+        self.assertAlmostEqual(_parse_grade("85%"), 85.0)
+
+
+class TestCareerScorer2Roles(unittest.TestCase):
+    def test_career_scorer_improving_2_roles(self):
+        from scoring.career_scorer import score_career
+        cand = {
+            "profile": {"current_title": "Senior AI Engineer", "years_of_experience": 5},
+            "career_history": [
+                {"title": "Senior AI Engineer", "duration_months": 24, "company": "Product Co"},
+                {"title": "Junior Software Engineer", "duration_months": 24, "company": "Service Co"},
+            ],
+            "skills": []
+        }
+        res = score_career(cand)
+        self.assertEqual(res["trajectory_score"], 12)  # improving
+
+    def test_career_scorer_declining_2_roles(self):
+        from scoring.career_scorer import score_career
+        cand = {
+            "profile": {"current_title": "Civil Engineer", "years_of_experience": 5},
+            "career_history": [
+                {"title": "Civil Engineer", "duration_months": 24, "company": "Construction Co"},
+                {"title": "AI Engineer", "duration_months": 24, "company": "AI Labs"},
+            ],
+            "skills": []
+        }
+        res = score_career(cand)
+        self.assertEqual(res["trajectory_score"], 2)  # declining
+
+
 if __name__ == "__main__":
     unittest.main()

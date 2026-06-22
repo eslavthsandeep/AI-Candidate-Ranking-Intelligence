@@ -10,23 +10,144 @@ import math
 import logging
 import sys
 import os
+from dotenv import load_dotenv
+from openai import OpenAI
+
+load_dotenv()
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config import AI_ML_KEYWORDS, PRODUCTION_KEYWORDS, PREFILTER_TITLE_KEYWORDS
+from config import AI_ML_KEYWORDS, PRODUCTION_KEYWORDS, PREFILTER_TITLE_KEYWORDS, JD_TERM_WEIGHTS
 
 logger = logging.getLogger(__name__)
 
+# Global OpenAI client lazy initialization
+_openai_client = None
+
+def get_openai_client():
+    global _openai_client
+    if _openai_client is not None:
+        return _openai_client
+    api_key = os.getenv("OPENAI_API_KEY")
+    if api_key:
+        try:
+            _openai_client = OpenAI(api_key=api_key)
+            return _openai_client
+        except Exception as e:
+            logger.warning(f"Error creating OpenAI client: {e}")
+    return None
+
+
+def get_openai_embeddings(texts: list[str]) -> list[list[float]] | None:
+    client = get_openai_client()
+    if not client:
+        return None
+    try:
+        response = client.embeddings.create(
+            input=texts,
+            model="text-embedding-3-small"
+        )
+        return [item.embedding for item in response.data]
+    except Exception as e:
+        logger.warning(f"Failed to fetch OpenAI embeddings: {e}")
+        return None
+
+
+import numpy as np
+
+# Global ONNX Encoder lazy initializer
+_onnx_encoder = None
+
+class ONNXEncoder:
+    def __init__(self):
+        try:
+            from huggingface_hub import hf_hub_download
+            import onnxruntime as ort
+            from tokenizers import Tokenizer
+            
+            # Download/locate models
+            models_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "models")
+            os.makedirs(models_dir, exist_ok=True)
+            
+            tokenizer_file = hf_hub_download(
+                repo_id="sentence-transformers/all-MiniLM-L6-v2",
+                filename="tokenizer.json",
+                local_dir=models_dir,
+                local_dir_use_symlinks=False
+            )
+            model_file = hf_hub_download(
+                repo_id="sentence-transformers/all-MiniLM-L6-v2",
+                filename="onnx/model.onnx",
+                local_dir=models_dir,
+                local_dir_use_symlinks=False
+            )
+            
+            self.tokenizer = Tokenizer.from_file(tokenizer_file)
+            
+            # Disable multithreading to avoid CPU safety alerts in server/sandbox
+            sess_options = ort.SessionOptions()
+            sess_options.intra_op_num_threads = 1
+            sess_options.inter_op_num_threads = 1
+            self.session = ort.InferenceSession(model_file, sess_options)
+        except Exception as e:
+            logger.warning(f"Could not load offline ONNX Encoder: {e}")
+            raise e
+
+    def encode(self, texts: list[str]) -> list[list[float]] | None:
+        try:
+            embeddings = []
+            for text in texts:
+                self.tokenizer.enable_truncation(max_length=512)
+                encoded = self.tokenizer.encode(text)
+                
+                input_ids = np.array([encoded.ids], dtype=np.int64)
+                attention_mask = np.array([encoded.attention_mask], dtype=np.int64)
+                token_type_ids = np.zeros_like(input_ids)
+                
+                inputs = {
+                    "input_ids": input_ids,
+                    "attention_mask": attention_mask,
+                    "token_type_ids": token_type_ids
+                }
+                outputs = self.session.run(None, inputs)
+                
+                # token embeddings shape: [1, seq_len, 384]
+                token_embeddings = outputs[0][0]
+                mask = attention_mask[0]
+                
+                # Mean Pooling
+                sum_embeddings = np.sum(token_embeddings * mask[:, None], axis=0)
+                sum_mask = np.sum(mask)
+                mean_embedding = sum_embeddings / max(sum_mask, 1e-9)
+                
+                # L2 Norm
+                norm = np.linalg.norm(mean_embedding)
+                if norm > 0:
+                    mean_embedding = mean_embedding / norm
+                embeddings.append(mean_embedding.tolist())
+            return embeddings
+        except Exception as e:
+            logger.warning(f"ONNX encoding failed: {e}")
+            return None
+
+def get_onnx_encoder():
+    global _onnx_encoder
+    if _onnx_encoder is not None:
+        return _onnx_encoder
+    try:
+        _onnx_encoder = ONNXEncoder()
+        return _onnx_encoder
+    except Exception:
+        return None
+
+def get_local_embeddings(texts: list[str]) -> list[list[float]] | None:
+    encoder = get_onnx_encoder()
+    if not encoder:
+        return None
+    return encoder.encode(texts)
+
 # Core Job Description representation for ranking
-JD_TEXT = """
-Senior AI Engineer Founding Team at Redrob AI.
-Production embeddings-based retrieval, sentence-transformers, OpenAI, BGE, E5.
-Vector databases, hybrid search, Pinecone, Weaviate, Qdrant, Milvus, FAISS, Elasticsearch, OpenSearch, Solr.
-Strong Python coding expertise, PyTorch, TensorFlow, keras, scikit-learn.
-Evaluation frameworks for ranking, NDCG, MRR, MAP, A/B testing, recommendation systems.
-LLM fine-tuning, LoRA, QLoRA, PEFT, RLHF, learning-to-rank, XGBoost, lightgbm, catboost.
-Distributed systems, Large-scale inference, MLOps, kubernetes, docker, AWS, GCP, Azure.
-"""
+from config import JD_TEXT
 
 
 def _tokenize(text: str) -> list[str]:
@@ -92,14 +213,24 @@ _RARE_TERMS = {
 
 
 def _get_idf(word: str) -> float:
-    """Return a static IDF weight for a word based on its rarity."""
+    """Return a static IDF weight for a word based on its rarity, boosted by JD_TERM_WEIGHTS."""
+    base_idf = 1.0
     if word in _RARE_TERMS:
-        return 3.0
-    if word in _MEDIUM_TERMS:
-        return 1.5
-    if word in _GENERIC_TERMS:
-        return 0.3
-    return 1.0  # default
+        base_idf = 3.0
+    elif word in _MEDIUM_TERMS:
+        base_idf = 1.5
+    elif word in _GENERIC_TERMS:
+        base_idf = 0.3
+
+    # Apply boost if term is found in JD_TERM_WEIGHTS or is part of a multi-word phrase
+    if word in JD_TERM_WEIGHTS:
+        base_idf *= JD_TERM_WEIGHTS[word]
+    else:
+        for term, weight in JD_TERM_WEIGHTS.items():
+            if word in term.split():
+                base_idf *= (weight * 0.7)
+                break
+    return base_idf
 
 
 def _get_tfidf_vector(text: str) -> list[float]:
@@ -138,17 +269,9 @@ def _cosine_similarity(vec1: list[float], vec2: list[float]) -> float:
 JD_VECTOR = _get_tfidf_vector(JD_TEXT)
 
 
-def score_semantic_similarity(candidate: dict) -> float:
-    """
-    Compute semantic similarity between candidate profile and the JD.
-    Returns a normalized similarity score from 0.0 to 100.0.
-
-    Uses TF-IDF with static IDF heuristics to heavily weight rare,
-    domain-specific terms (e.g. 'qlora', 'weaviate', 'ndcg') and
-    down-weight generic terms (e.g. 'engineer', 'senior', 'development').
-    """
+def assemble_candidate_text(candidate: dict) -> str:
     if not isinstance(candidate, dict):
-        return 0.0
+        return ""
     profile = candidate.get('profile') or {}
     if not isinstance(profile, dict):
         profile = {}
@@ -176,7 +299,21 @@ def score_semantic_similarity(candidate: dict) -> float:
         if isinstance(skill, dict):
             candidate_text_parts.append(skill.get('name') or '')
 
-    candidate_text = " ".join([str(p) for p in candidate_text_parts if p])
+    return " ".join([str(p) for p in candidate_text_parts if p])
+
+
+def score_semantic_similarity(candidate: dict) -> float:
+    """
+    Compute semantic similarity between candidate profile and the JD.
+    Returns a normalized similarity score from 0.0 to 100.0.
+
+    Uses TF-IDF with static IDF heuristics to heavily weight rare,
+    domain-specific terms (e.g. 'qlora', 'weaviate', 'ndcg') and
+    down-weight generic terms (e.g. 'engineer', 'senior', 'development').
+    """
+    candidate_text = assemble_candidate_text(candidate)
+    if not candidate_text:
+        return 0.0
 
     # Calculate TF-IDF vector
     cand_vector = _get_tfidf_vector(candidate_text)

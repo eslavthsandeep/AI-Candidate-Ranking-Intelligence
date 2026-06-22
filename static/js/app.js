@@ -3,6 +3,107 @@
  * Pure Vanilla JS dashboard interaction, SSE streaming, and dynamic rendering.
  */
 
+function logToServer(message) {
+    console.log(message);
+    fetch('/api/log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: message })
+    }).catch(e => console.error('Failed to log to server', e));
+}
+
+window.onerror = function (message, source, lineno, colno, error) {
+    logToServer(`JS Error: ${message} at ${source}:${lineno}:${colno}`);
+    return false;
+};
+
+window.onunhandledrejection = function (event) {
+    logToServer(`Unhandled Rejection: ${event.reason}`);
+};
+
+// Log initial load to verify logging works
+logToServer("App script loaded and error logger initialized.");
+
+function escapeHtml(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function generateRadarChartSVG(scores) {
+    const width = 300;
+    const height = 300;
+    const cx = width / 2;
+    const cy = height / 2;
+    const r = 90; // max radius
+    
+    const labels = ["Skills", "Career", "Trajectory", "Behavioral", "Education"];
+    const keys = ["skill_match", "career", "trajectory", "behavioral", "education"];
+    const n = labels.length;
+    
+    // Grid lines (pentagons at 20, 40, 60, 80, 100)
+    let gridHtml = "";
+    for (let j = 1; j <= 5; j++) {
+        const radius = (j / 5) * r;
+        const points = [];
+        for (let i = 0; i < n; i++) {
+            const angle = -Math.PI / 2 + (2 * Math.PI * i) / n;
+            const x = cx + radius * Math.cos(angle);
+            const y = cy + radius * Math.sin(angle);
+            points.push(`${x},${y}`);
+        }
+        gridHtml += `<polygon points="${points.join(' ')}" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="1" />`;
+    }
+    
+    // Axis lines and labels
+    let axesHtml = "";
+    for (let i = 0; i < n; i++) {
+        const angle = -Math.PI / 2 + (2 * Math.PI * i) / n;
+        const x = cx + r * Math.cos(angle);
+        const y = cy + r * Math.sin(angle);
+        axesHtml += `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="rgba(255,255,255,0.15)" stroke-width="1" />`;
+        
+        // Label position (slightly offset outward)
+        const lx = cx + (r + 25) * Math.cos(angle);
+        const ly = cy + (r + 15) * Math.sin(angle);
+        
+        // Adjust text anchoring based on side of chart
+        let anchor = "middle";
+        if (Math.cos(angle) > 0.1) anchor = "start";
+        else if (Math.cos(angle) < -0.1) anchor = "end";
+        
+        axesHtml += `<text x="${lx}" y="${ly}" fill="var(--text-secondary)" font-size="11" font-family="Inter, sans-serif" text-anchor="${anchor}" dominant-baseline="middle">${labels[i]}</text>`;
+    }
+    
+    // Data polygon
+    const dataPoints = [];
+    for (let i = 0; i < n; i++) {
+        const angle = -Math.PI / 2 + (2 * Math.PI * i) / n;
+        const score = scores[keys[i]] || 0;
+        const radius = (score / 100) * r;
+        const x = cx + radius * Math.cos(angle);
+        const y = cy + radius * Math.sin(angle);
+        dataPoints.push(`${x},${y}`);
+    }
+    
+    const polygonHtml = `
+        <polygon points="${dataPoints.join(' ')}" fill="rgba(99, 102, 241, 0.25)" stroke="#6366f1" stroke-width="2" />
+        ${dataPoints.map(p => `<circle cx="${p.split(',')[0]}" cy="${p.split(',')[1]}" r="4" fill="#818cf8" stroke="#ffffff" stroke-width="1.5" />`).join('')}
+    `;
+    
+    return `
+        <svg width="100%" height="100%" viewBox="0 0 ${width} ${height}" style="overflow: visible;">
+            ${gridHtml}
+            ${axesHtml}
+            ${polygonHtml}
+        </svg>
+    `;
+}
+
 class RedrobRanker {
     constructor() {
         this.taskId = null;
@@ -198,7 +299,7 @@ class RedrobRanker {
         
         toast.innerHTML = `
             ${iconSvg}
-            <span>${message}</span>
+            <span>${escapeHtml(message)}</span>
         `;
         
         this.toastContainer.appendChild(toast);
@@ -299,10 +400,12 @@ class RedrobRanker {
             this.eventSource.close();
         }
         
+        logToServer("SSE: Connecting to progress endpoint for task " + taskId);
         this.eventSource = new EventSource(`/api/progress/${taskId}`);
         
         this.eventSource.onmessage = (event) => {
             const data = JSON.parse(event.data);
+            logToServer("SSE Message: status=" + data.status + ", progress=" + data.progress + ", stage=" + data.stage);
             
             if (data.status === 'not_found' || data.status === 'error') {
                 this.eventSource.close();
@@ -321,6 +424,7 @@ class RedrobRanker {
             });
             
             if (data.status === 'complete') {
+                logToServer("SSE: Received complete status. Closing connection and loading results.");
                 this.eventSource.close();
                 this.stopTimer();
                 this.onRankingComplete(taskId);
@@ -328,11 +432,12 @@ class RedrobRanker {
         };
         
         this.eventSource.onerror = (err) => {
-            console.error("SSE Connection error", err);
+            logToServer("SSE Connection error detected.");
             this.eventSource.close();
             this.stopTimer();
             this.showToast("Connection to progress stream interrupted.", "error");
             // Attempt to retrieve results directly in case of complete
+            logToServer("SSE Error fallback: Scheduling direct results load in 3 seconds.");
             setTimeout(() => this.onRankingComplete(taskId), 3000);
         };
     }
@@ -349,18 +454,30 @@ class RedrobRanker {
     async onRankingComplete(taskId) {
         if (this.progressStageText) this.progressStageText.textContent = 'Loading results dashboard...';
         
+        if (!this.resultsRetryCount) {
+            this.resultsRetryCount = {};
+        }
+        this.resultsRetryCount[taskId] = (this.resultsRetryCount[taskId] || 0) + 1;
+        
         try {
+            logToServer("onRankingComplete: Fetching results for task " + taskId + " (Attempt " + this.resultsRetryCount[taskId] + ")");
             const res = await fetch(`/api/results/${taskId}`);
-            if (!res.ok) throw new Error("Results not ready");
+            logToServer("onRankingComplete: Fetch results status: " + res.status);
+            if (!res.ok) throw new Error("Results not ready (HTTP " + res.status + ")");
             
             this.results = await res.json();
+            logToServer("onRankingComplete: Parse JSON success. Candidates count: " + (this.results.candidates ? this.results.candidates.length : "null"));
             
             // Render stats and table
+            logToServer("onRankingComplete: Rendering stats cards...");
             this.renderStatsCards(this.results.stats);
+            logToServer("onRankingComplete: Rendering results table...");
             this.renderResultsTable(this.results.candidates);
             
             // Validate output CSV
+            logToServer("onRankingComplete: Validating CSV output...");
             await this.validateCSVOutput(taskId);
+            logToServer("onRankingComplete: CSV validation done!");
             
             // Hide loading progress, show results
             if (this.progressArea) this.progressArea.classList.add('hidden');
@@ -369,16 +486,28 @@ class RedrobRanker {
             
             this.updateStatusBadge('complete', 'Complete');
             this.showToast("Shortlist successfully generated and validated!", "success");
+            delete this.resultsRetryCount[taskId];
+            logToServer("onRankingComplete: Success! All rendering and validation completed.");
             
         } catch (error) {
+            logToServer("onRankingComplete Catch block: " + (error.stack || error.message || error));
             console.error("Error fetching results", error);
-            this.showToast("Retrying results load...", "info");
-            setTimeout(() => this.onRankingComplete(taskId), 2500);
+            if (this.resultsRetryCount[taskId] > 10) {
+                this.showToast("Failed to load ranking results. Please check server logs.", "error");
+                delete this.resultsRetryCount[taskId];
+                this.resetUI();
+                this.updateStatusBadge('failed', 'Failed');
+            } else {
+                this.showToast("Retrying results load...", "info");
+                setTimeout(() => this.onRankingComplete(taskId), 2500);
+            }
         } finally {
-            if (this.btnFull) this.btnFull.disabled = false;
-            if (this.btnSample) this.btnSample.disabled = false;
-            const btnUploadEl = document.getElementById('btn-upload');
-            if (btnUploadEl) btnUploadEl.disabled = false;
+            if (!this.resultsRetryCount[taskId]) {
+                if (this.btnFull) this.btnFull.disabled = false;
+                if (this.btnSample) this.btnSample.disabled = false;
+                const btnUploadEl = document.getElementById('btn-upload');
+                if (btnUploadEl) btnUploadEl.disabled = false;
+            }
         }
     }
     
@@ -425,7 +554,7 @@ class RedrobRanker {
                     el.className = 'validation-item validation-item--error';
                     el.innerHTML = `
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                        <span>${err}</span>
+                        <span>${escapeHtml(err)}</span>
                     `;
                     this.validationBadges.appendChild(el);
                 });
@@ -511,7 +640,7 @@ class RedrobRanker {
                 // Limit shown skills in the table
                 const maxSkills = 4;
                 const truncatedSkills = skillsList.slice(0, maxSkills);
-                let skillsHtml = truncatedSkills.map(s => `<span class="pill pill-primary">${s}</span>`).join('');
+                let skillsHtml = truncatedSkills.map(s => `<span class="pill pill-primary">${escapeHtml(s)}</span>`).join('');
                 if (skillsList.length > maxSkills) {
                     skillsHtml += `<span class="pill pill-secondary">+${skillsList.length - maxSkills}</span>`;
                 }
@@ -525,12 +654,12 @@ class RedrobRanker {
                         </div>
                     </td>
                     <td>
-                        <div style="font-weight: 600; color: var(--text-primary);">${c.name || 'Unknown'}</div>
-                        <div class="mono" style="font-size: 0.8rem; color: var(--text-muted);">${c.candidate_id}</div>
+                        <div style="font-weight: 600; color: var(--text-primary);">${escapeHtml(c.name || 'Unknown')}</div>
+                        <div class="mono" style="font-size: 0.8rem; color: var(--text-muted);">${escapeHtml(c.candidate_id)}</div>
                     </td>
-                    <td style="font-weight:500;">${c.title || 'Unknown'}</td>
-                    <td class="mono" style="font-weight:500;">${c.years_of_experience || 0}y</td>
-                    <td>${c.location || 'Unknown'}</td>
+                    <td style="font-weight:500;">${escapeHtml(c.title || 'Unknown')}</td>
+                    <td class="mono" style="font-weight:500;">${escapeHtml(c.years_of_experience || 0)}y</td>
+                    <td>${escapeHtml(c.location || 'Unknown')}</td>
                     <td>${skillsHtml}</td>
                     <td>${recHtml}</td>
                 `;
@@ -562,16 +691,16 @@ class RedrobRanker {
         let contentHtml = `
             <div class="candidate-header">
                 <div>
-                    <h2>${candidate.name}</h2>
+                    <h2>${escapeHtml(candidate.name)}</h2>
                     <div style="color: var(--text-secondary); font-size: 1.1rem; margin-top: 0.25rem;">
-                        <strong>${candidate.title}</strong>
+                        <strong>${escapeHtml(candidate.title)}</strong>
                     </div>
                     <div style="color: var(--text-muted); font-size: 0.95rem; display:flex; gap:0.75rem; margin-top:0.25rem;">
-                        <span>${candidate.years_of_experience} Years Exp</span>
+                        <span>${escapeHtml(candidate.years_of_experience)} Years Exp</span>
                         <span>·</span>
-                        <span>${candidate.location}, ${candidate.country}</span>
+                        <span>${escapeHtml(candidate.location)}, ${escapeHtml(candidate.country)}</span>
                         <span>·</span>
-                        <span class="mono">${candidate.candidate_id}</span>
+                        <span class="mono">${escapeHtml(candidate.candidate_id)}</span>
                     </div>
                 </div>
                 <div class="candidate-header__score">
@@ -597,6 +726,14 @@ class RedrobRanker {
                 <!-- Right panel: AI Scoring Breakdown & Skills -->
                 <div>
                     <div class="candidate-section-title">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2v20M2 12h20"/></svg>
+                        Evaluation Profile (Radar Chart)
+                    </div>
+                    <div class="radar-chart-container" style="width: 100%; height: 240px; display: flex; justify-content: center; align-items: center; margin: 1rem 0 2rem 0;">
+                        ${generateRadarChartSVG(candidate.composite_breakdown)}
+                    </div>
+
+                    <div class="candidate-section-title">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
                         Scoring Dimensions (AI Match)
                     </div>
@@ -610,11 +747,11 @@ class RedrobRanker {
                     </div>
                     
                     <div class="candidate-section-title">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/></svg>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
                         AI Reasoning Synopsis
                     </div>
                     <p style="background: rgba(99,102,241,0.08); padding: 1.15rem; border-left: 4px solid #6366f1; border-radius: 6px; font-size: 0.95rem; line-height: 1.5; color: var(--text-primary); margin-bottom: 2rem;">
-                        ${candidate.reasoning}
+                        ${escapeHtml(candidate.reasoning)}
                     </p>
                     
                     <div class="candidate-section-title">
@@ -622,7 +759,7 @@ class RedrobRanker {
                         Identified Skills
                     </div>
                     <div style="display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.5rem;">
-                        ${candidate.skills.map(s => `<span class="pill pill-primary">${s}</span>`).join('')}
+                        ${candidate.skills.map(s => `<span class="pill pill-primary">${escapeHtml(s)}</span>`).join('')}
                     </div>
                 </div>
             </div>
@@ -675,13 +812,13 @@ class RedrobRanker {
                 timelineHtml += `
                     <div class="timeline__item">
                         <div class="${dotClass}"></div>
-                        <div class="timeline__title">${job.title}</div>
+                        <div class="timeline__title">${escapeHtml(job.title)}</div>
                         <div class="timeline__meta">
-                            <strong>${job.company}</strong>
+                            <strong>${escapeHtml(job.company)}</strong>
                             <span style="margin: 0 0.3rem;">·</span>
-                            <span class="timeline__duration">${job.start_date} – ${job.end_date || 'Present'} (${job.duration_months} mos)</span>
+                            <span class="timeline__duration">${escapeHtml(job.start_date)} – ${escapeHtml(job.end_date || 'Present')} (${escapeHtml(job.duration_months)} mos)</span>
                         </div>
-                        ${job.description ? `<div class="timeline__desc">${job.description}</div>` : ''}
+                        ${job.description ? `<div class="timeline__desc">${escapeHtml(job.description)}</div>` : ''}
                     </div>
                 `;
             });

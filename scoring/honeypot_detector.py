@@ -158,4 +158,65 @@ def detect_honeypot(candidate):
         logger.debug("Honeypot detected: Multiple assessment contradictions")
         return 1.0, True
 
+    # 10. Title-Description mismatch (scrambled career history)
+    for role in career_history:
+        if not isinstance(role, dict):
+            continue
+        role_title = (role.get("title") or "").lower()
+        role_desc = (role.get("description") or "").lower()
+        
+        # Define keywords for different fields
+        mech_kws = ["mechanical engineering", "solidworks", "creo", "cad", "fea", "ansys", "dfm/dfma"]
+        accounting_kws = ["gaap", "ind-as", "tax filings", "month-end close", "accounting role", "gl", "ledger"]
+        support_kws = ["support agents", "support knowledge base", "tickets", "escalation process"]
+        writing_kws = ["content writing", "seo", "freelance writer", "editorial calendar"]
+        design_kws = ["brand design", "visual system", "typography", "logo", "rebrand"]
+        ba_kws = ["business diagnostics", "process re-engineering", "consulting toolkit", "slide-craft"]
+        
+        # Mismatch checks
+        is_mech = any(kw in role_desc for kw in mech_kws)
+        is_acct = any(kw in role_desc for kw in accounting_kws)
+        is_supp = any(kw in role_desc for kw in support_kws)
+        is_write = any(kw in role_desc for kw in writing_kws)
+        is_design = any(kw in role_desc for kw in design_kws)
+        is_ba = any(kw in role_desc for kw in ba_kws)
+        
+        if "marketing" in role_title:
+            if is_mech or is_acct or is_supp or is_ba:
+                logger.debug(f"Honeypot detected: Marketing title with incompatible description: {role_desc[:60]}...")
+                return 1.0, True
+        if "operations" in role_title:
+            if is_mech or is_write or is_design or is_ba:
+                logger.debug(f"Honeypot detected: Operations title with incompatible description: {role_desc[:60]}...")
+                return 1.0, True
+        if "accountant" in role_title:
+            if is_mech or is_supp or is_design or is_write or is_ba:
+                logger.debug(f"Honeypot detected: Accountant title with incompatible description: {role_desc[:60]}...")
+                return 1.0, True
+        if "hr manager" in role_title or "human resources" in role_title:
+            if is_mech or is_acct or is_supp or is_design or is_write or is_ba:
+                logger.debug(f"Honeypot detected: HR title with incompatible description: {role_desc[:60]}...")
+                return 1.0, True
+        if "customer support" in role_title or "support" in role_title:
+            if is_mech or is_acct or is_design or is_ba:
+                logger.debug(f"Honeypot detected: Support title with incompatible description: {role_desc[:60]}...")
+                return 1.0, True
+
+    # 11. Expected Salary Check (fake senior AI profiles with low salary)
+    salary_max = signals.get("expected_salary_range_inr_lpa", {}).get("max", 0)
+    if salary_max > 0 and salary_max < 10.0:
+        is_senior_ai = False
+        if yoe >= 5:
+            # Check if any role has AI title
+            for role in career_history:
+                if not isinstance(role, dict):
+                    continue
+                r_title = (role.get("title") or "").lower()
+                if any(kw in r_title for kw in ("ml", "ai", "machine learning", "deep learning", "nlp", "computer vision", "data scientist")):
+                    is_senior_ai = True
+                    break
+        if is_senior_ai:
+            logger.debug(f"Honeypot detected: High experience/AI profile with low salary {salary_max} LPA")
+            return 1.0, True
+
     return 0.0, False

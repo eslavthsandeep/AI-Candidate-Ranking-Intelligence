@@ -8,10 +8,12 @@ from rank import RankingPipeline
 from config import SAMPLE_CANDIDATES_JSON, CANDIDATES_JSONL, VALIDATE_SCRIPT, DATA_DIR
 
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024
 
 TASKS = {}
 RESULTS = {}
 CANDIDATE_CACHE = {}
+TASKS_LOCK = threading.Lock()
 
 
 def get_csv_path(task_id):
@@ -20,10 +22,11 @@ def get_csv_path(task_id):
 
 def rank_background_task(task_id, source):
     try:
-        TASKS[task_id] = {
-            'status': 'running', 'progress': 0, 'stage': 'Initializing',
-            'total': 0, 'processed': 0,
-        }
+        with TASKS_LOCK:
+            TASKS[task_id] = {
+                'status': 'running', 'progress': 0, 'stage': 'Initializing',
+                'total': 0, 'processed': 0,
+            }
 
         if source == 'sample':
             input_path = SAMPLE_CANDIDATES_JSON
@@ -49,26 +52,40 @@ def rank_background_task(task_id, source):
                 f"Place candidates.jsonl in the data/ folder or use Upload Dataset."
             )
 
-        TASKS[task_id]['total'] = total
+        with TASKS_LOCK:
+            TASKS[task_id]['total'] = total
 
         def progress_callback(stage, processed, filtered_in):
-            pct = min(99, int((processed / max(total, 1)) * 100))
-            TASKS[task_id]['progress'] = pct
-            TASKS[task_id]['stage'] = f"Filtering & Scoring (kept {filtered_in})"
-            TASKS[task_id]['processed'] = processed
+            with TASKS_LOCK:
+                if task_id not in TASKS:
+                    return
+                if stage == "scoring":
+                    pct = min(95, int((processed / max(total, 1)) * 100))
+                    TASKS[task_id]['progress'] = pct
+                    TASKS[task_id]['stage'] = f"Filtering & Scoring (kept {filtered_in})"
+                    TASKS[task_id]['processed'] = processed
+                elif stage == "calibrating":
+                    TASKS[task_id]['progress'] = 96
+                    TASKS[task_id]['stage'] = "Stage 1: Calibrating heuristic scores..."
+                elif stage == "reranking":
+                    TASKS[task_id]['progress'] = 98
+                    TASKS[task_id]['stage'] = f"Stage 2: Running local ONNX semantic re-ranking (approx. {min(300, filtered_in)} candidates)..."
 
         pipeline = RankingPipeline()
         output_path = get_csv_path(task_id)
 
-        TASKS[task_id]['stage'] = 'Starting pipeline...'
+        with TASKS_LOCK:
+            TASKS[task_id]['stage'] = 'Starting pipeline...'
         top_n = 100 if total >= 100 else total
         top_results = pipeline.run(input_path, output_path, progress_callback, top_n=top_n)
 
-        TASKS[task_id]['progress'] = 100
-        TASKS[task_id]['stage'] = 'Complete'
-        TASKS[task_id]['status'] = 'complete'
+        with TASKS_LOCK:
+            TASKS[task_id]['progress'] = 100
+            TASKS[task_id]['stage'] = 'Complete'
+            TASKS[task_id]['status'] = 'complete'
 
         candidates_data = []
+        candidate_cache_updates = {}
         for item in top_results:
             c = item['candidate']
             prof = c.get('profile', {})
@@ -96,29 +113,73 @@ def rank_background_task(task_id, source):
                 'hard_disqualified': item.get('hard_disqualified', False),
             })
 
-            CANDIDATE_CACHE[item['candidate_id']] = {
+            candidate_cache_updates[item['candidate_id']] = {
                 'candidate_id': item['candidate_id'],
                 'career_history': c.get('career_history', []),
                 'education': c.get('education', []),
                 'skills': c.get('skills', []),
             }
 
-        RESULTS[task_id] = {
-            'candidates': candidates_data,
-            'stats': {
-                'total_processed': total,
-                'shortlisted': len(top_results),
-                'avg_top10_score': (
-                    sum(c['score'] for c in candidates_data[:10]) / 10
-                    if len(candidates_data) >= 10 else 0
-                ),
-                'honeypots_detected': pipeline.honeypots_detected,
-                'disqualified_count': pipeline.disqualified_count,
-                'soft_penalized_count': pipeline.soft_penalized_count,
-            },
-        }
+        with TASKS_LOCK:
+            for c_id, c_val in candidate_cache_updates.items():
+                CANDIDATE_CACHE[c_id] = c_val
+            RESULTS[task_id] = {
+                'candidates': candidates_data,
+                'stats': {
+                    'total_processed': total,
+                    'shortlisted': len(top_results),
+                    'avg_top10_score': (
+                        sum(c['score'] for c in candidates_data[:10]) / 10
+                        if len(candidates_data) >= 10 else 0
+                    ),
+                    'honeypots_detected': pipeline.honeypots_detected,
+                    'disqualified_count': pipeline.disqualified_count,
+                    'soft_penalized_count': pipeline.soft_penalized_count,
+                },
+            }
     except Exception as e:
-        TASKS[task_id] = {'status': 'error', 'message': str(e)}
+        with TASKS_LOCK:
+            TASKS[task_id] = {'status': 'failed', 'message': str(e)}
+    finally:
+        # Clean up temporary uploaded files to prevent disk bloating
+        if source.startswith('custom_'):
+            try:
+                input_path = os.path.join(os.path.dirname(__file__), source)
+                if os.path.exists(input_path):
+                    os.remove(input_path)
+                    app.logger.info(f"Successfully cleaned up temporary upload file: {input_path}")
+            except Exception as e:
+                app.logger.warning(f"Failed to delete temporary upload file {source}: {e}")
+        prune_tasks_and_cache()
+
+
+def prune_tasks_and_cache():
+    global TASKS, RESULTS, CANDIDATE_CACHE
+    with TASKS_LOCK:
+        completed_tids = sorted(
+            [tid for tid, task in TASKS.items() if task.get('status') in ('complete', 'failed')],
+            key=lambda tid: int(tid.split('_')[0]) if '_' in tid else 0
+        )
+        if len(completed_tids) > 5:
+            for tid in completed_tids[:-5]:
+                TASKS.pop(tid, None)
+                RESULTS.pop(tid, None)
+                csv_path = get_csv_path(tid)
+                if os.path.exists(csv_path):
+                    try:
+                        os.remove(csv_path)
+                    except Exception as e:
+                        app.logger.warning(f"Failed to remove CSV on pruning: {e}")
+
+        # Rebuild CANDIDATE_CACHE
+        active_cids = set()
+        for res in RESULTS.values():
+            for c in res.get('candidates', []):
+                active_cids.add(c['candidate_id'])
+        for cid in list(CANDIDATE_CACHE.keys()):
+            if cid not in active_cids:
+                CANDIDATE_CACHE.pop(cid, None)
+
 
 
 @app.route('/')
@@ -128,9 +189,16 @@ def index():
 
 @app.route('/api/rank', methods=['POST'])
 def start_ranking():
+    import uuid
     data = request.json
     source = data.get('source', 'sample')
-    task_id = str(int(time.time()))
+
+    with TASKS_LOCK:
+        for tid, task in TASKS.items():
+            if task.get('status') == 'running':
+                return jsonify({'message': 'Another ranking task is currently running. Please wait for it to complete.'}), 429
+
+    task_id = f"{int(time.time())}_{uuid.uuid4().hex[:8]}"
 
     thread = threading.Thread(target=rank_background_task, args=(task_id, source))
     thread.daemon = True
@@ -143,22 +211,35 @@ def start_ranking():
 def progress(task_id):
     def generate():
         while True:
-            if task_id in TASKS:
-                task = TASKS[task_id]
+            with TASKS_LOCK:
+                if task_id in TASKS:
+                    task = TASKS[task_id].copy()
+                else:
+                    task = None
+            if task:
                 yield f"data: {json.dumps(task)}\n\n"
-                if task['status'] in ['complete', 'error']:
+                if task['status'] in ['complete', 'error', 'failed']:
                     break
             else:
                 yield f"data: {json.dumps({'status': 'not_found'})}\n\n"
                 break
             time.sleep(0.5)
-    return Response(generate(), mimetype='text/event-stream')
+    return Response(
+        generate(),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'Connection': 'keep-alive',
+            'X-Accel-Buffering': 'no'
+        }
+    )
 
 
 @app.route('/api/results/<task_id>')
 def get_results(task_id):
-    if task_id in RESULTS:
-        return jsonify(RESULTS[task_id])
+    with TASKS_LOCK:
+        if task_id in RESULTS:
+            return jsonify(RESULTS[task_id])
     return jsonify({'error': 'Results not found'}), 404
 
 
@@ -233,8 +314,9 @@ def validate_csv(task_id):
 
 @app.route('/api/candidate/<candidate_id>')
 def get_candidate(candidate_id):
-    if candidate_id in CANDIDATE_CACHE:
-        return jsonify(CANDIDATE_CACHE[candidate_id])
+    with TASKS_LOCK:
+        if candidate_id in CANDIDATE_CACHE:
+            return jsonify(CANDIDATE_CACHE[candidate_id])
     return jsonify({'error': 'Candidate not found'}), 404
 
 
@@ -264,5 +346,15 @@ def upload_file():
         return jsonify({'message': f'Failed to save file: {str(e)}'}), 500
 
 
+@app.route('/api/log', methods=['POST'])
+def client_log():
+    try:
+        data = request.json
+        app.logger.info(f"CLIENT LOG: {data.get('message')}")
+        return jsonify({'status': 'ok'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(debug=False, port=5000)

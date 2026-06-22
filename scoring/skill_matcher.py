@@ -190,7 +190,8 @@ def score_skills(candidate: dict) -> dict:
     current_title = (candidate.get("profile") or {}).get("current_title")
     tier = _title_tier(current_title)
     title_mult = TITLE_SKILL_MULTIPLIER.get(tier, 0.25)
-    final_score = min(final_score * title_mult, 100.0)
+    # Scale skill score by title tier multiplier to penalize keyword-stuffing in non-aligned roles
+    final_score = round(final_score * title_mult, 2)
 
     return {
         "score": round(final_score, 2),

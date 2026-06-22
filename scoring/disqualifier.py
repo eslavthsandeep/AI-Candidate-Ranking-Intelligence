@@ -21,9 +21,10 @@ from config import (
     SKILL_TO_CLUSTER,
     SKILL_ALIASES,
     TITLE_TIERS,
+    REFERENCE_DATE,
 )
 
-_REFERENCE_DATE = datetime(2026, 6, 8)
+_REFERENCE_DATE = REFERENCE_DATE
 
 _CV_SPEECH_SKILLS = {
     "computer vision", "speech", "object detection", "image classification",
@@ -192,6 +193,8 @@ def check_disqualifiers(candidate: dict, skill_result: dict | None = None) -> di
         hard = True
         reasons.append("CV/Speech focus without NLP/IR or retrieval experience")
 
+    deductions = 0.0
+
     # ── Soft: no production signals in last 18 months ───────────
     recent_roles = [
         r for r in career
@@ -202,7 +205,7 @@ def check_disqualifiers(candidate: dict, skill_result: dict | None = None) -> di
         for r in recent_roles if isinstance(r, dict)
     )
     if recent_roles and not _has_production_signals(recent_text):
-        soft_penalty *= 0.55
+        deductions += 0.25
         reasons.append("No production-shipping signals in the last 18 months")
 
     # ── Soft: recent LangChain/OpenAI wrapper-only profile ──────
@@ -211,7 +214,7 @@ def check_disqualifiers(candidate: dict, skill_result: dict | None = None) -> di
         wrapper_hits = sum(1 for kw in _WRAPPER_KEYWORDS if kw in recent_desc)
         production_hits = sum(1 for kw in PRODUCTION_KEYWORDS if kw in recent_desc)
         if wrapper_hits >= 2 and production_hits == 0 and must_have_count < 3:
-            soft_penalty *= 0.45
+            deductions += 0.30
             reasons.append("Recent profile looks like thin LLM-wrapper work")
 
     # ── Soft: LangChain experience less than 12 months ─────────
@@ -224,7 +227,7 @@ def check_disqualifiers(candidate: dict, skill_result: dict | None = None) -> di
             langchain_under_12 = True
             break
     if langchain_under_12:
-        soft_penalty *= 0.70
+        deductions += 0.15
         reasons.append("Recent LangChain experience is less than 12 months")
 
     # ── Hard: low-tier title with weak must-have coverage ───────
@@ -241,12 +244,14 @@ def check_disqualifiers(candidate: dict, skill_result: dict | None = None) -> di
         and must_have_count < 3
     )
     if academic_only:
-        soft_penalty *= 0.5
+        deductions += 0.25
         reasons.append("Academic/research profile without production shipping evidence")
+
+    soft_penalty = max(0.20, 1.0 - deductions)
 
     return {
         "hard_disqualified": hard,
-        "soft_penalty": max(soft_penalty, 0.1),
+        "soft_penalty": soft_penalty,
         "reasons": reasons,
         "title_tier": title_tier,
         "must_have_count": must_have_count,

@@ -38,18 +38,17 @@ DEFAULT_OUTPUT_CSV = os.path.join(BASE_DIR, "submission.csv")
 # ─────────────────────────────────────────────────────────────
 # JOB DESCRIPTION (semantic + UI)
 # ─────────────────────────────────────────────────────────────
-JD_PROFILE_TEXT = """
-Senior AI Engineer founding team role at Redrob AI talent intelligence platform.
-Must have production embeddings-based retrieval sentence-transformers OpenAI BGE E5.
-Vector databases hybrid search Pinecone Weaviate Qdrant Milvus FAISS Elasticsearch OpenSearch.
-Strong Python PyTorch machine learning engineering.
-Evaluation frameworks for ranking NDCG MRR MAP A/B testing recommendation systems.
-Nice to have LLM fine-tuning LoRA QLoRA PEFT learning-to-rank XGBoost HR-tech marketplace.
-Distributed systems large-scale inference MLOps open source contributions.
-Disqualify pure academic research without production shipping LangChain wrappers only
-consulting-only careers job hopping CV speech robotics without NLP information retrieval.
-Location Pune Noida India hybrid 5-9 years experience product company background.
+JD_TEXT = """
+Senior AI Engineer Founding Team at Redrob AI.
+Production embeddings-based retrieval, sentence-transformers, OpenAI, BGE, E5.
+Vector databases, hybrid search, Pinecone, Weaviate, Qdrant, Milvus, FAISS, Elasticsearch, OpenSearch, Solr.
+Strong Python coding expertise, PyTorch, TensorFlow, keras, scikit-learn.
+Evaluation frameworks for ranking, NDCG, MRR, MAP, A/B testing, recommendation systems.
+LLM fine-tuning, LoRA, QLoRA, PEFT, RLHF, learning-to-rank, XGBoost, lightgbm, catboost.
+Distributed systems, Large-scale inference, MLOps, kubernetes, docker, AWS, GCP, Azure.
 """
+
+JD_PROFILE_TEXT = JD_TEXT
 
 JD_TERM_WEIGHTS: dict[str, float] = {
     "embedding": 3.0,
@@ -729,3 +728,6 @@ RELEVANT_CERTIFICATIONS: dict[str, int] = {
     "scrum master": 1,
     "pmp": 1,
 }
+
+from datetime import datetime
+REFERENCE_DATE = datetime(2026, 6, 8)

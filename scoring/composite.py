@@ -46,14 +46,10 @@ def calculate_composite_score(
         + w.get("semantic", 0.0) * semantic_score
     )
 
-    if behavioral_multiplier >= 1.0:
-        headroom = 100.0 - raw_score
-        bonus_fraction = behavioral_multiplier - 1.0
-        adjusted = raw_score + headroom * bonus_fraction * 0.3
-    else:
-        adjusted = raw_score * behavioral_multiplier
+    # Apply symmetric scaling for the behavioral multiplier (maps [0.6, 1.3] to [0.88, 1.09])
+    adjusted = raw_score * (0.7 + 0.3 * behavioral_multiplier)
 
     adjusted *= max(0.1, min(1.0, soft_penalty))
 
-    normalized_score = max(0.0, min(1.0, adjusted / 100.0))
+    normalized_score = max(0.0, min(1.0, adjusted / 109.0))
     return normalized_score
