@@ -69,18 +69,25 @@ class ONNXEncoder:
             models_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "models")
             os.makedirs(models_dir, exist_ok=True)
             
-            tokenizer_file = hf_hub_download(
-                repo_id="sentence-transformers/all-MiniLM-L6-v2",
-                filename="tokenizer.json",
-                local_dir=models_dir,
-                local_dir_use_symlinks=False
-            )
-            model_file = hf_hub_download(
-                repo_id="sentence-transformers/all-MiniLM-L6-v2",
-                filename="onnx/model.onnx",
-                local_dir=models_dir,
-                local_dir_use_symlinks=False
-            )
+            tokenizer_file = os.path.join(models_dir, "tokenizer.json")
+            model_file = os.path.join(models_dir, "onnx", "model.onnx")
+            
+            if os.path.exists(tokenizer_file) and os.path.exists(model_file):
+                logger.info("Loading ONNX Encoder and Tokenizer from local files.")
+            else:
+                logger.info("Local ONNX files not found. Attempting download from Hugging Face Hub...")
+                tokenizer_file = hf_hub_download(
+                    repo_id="sentence-transformers/all-MiniLM-L6-v2",
+                    filename="tokenizer.json",
+                    local_dir=models_dir,
+                    local_dir_use_symlinks=False
+                )
+                model_file = hf_hub_download(
+                    repo_id="sentence-transformers/all-MiniLM-L6-v2",
+                    filename="onnx/model.onnx",
+                    local_dir=models_dir,
+                    local_dir_use_symlinks=False
+                )
             
             self.tokenizer = Tokenizer.from_file(tokenizer_file)
             
