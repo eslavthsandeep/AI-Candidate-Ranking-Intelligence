@@ -211,9 +211,18 @@ class RankingPipeline:
         """Perform pool-wide percentile-rank scaling to calibrate scores before composite calculation."""
         if not scored_candidates:
             return
+        from config import COMPOSITE_WEIGHTS
         score_keys = ['skill_score', 'career_score', 'behavioral_score', 'education_score', 'semantic_score']
+        weight_key_map = {
+            'skill_score': 'skill_match',
+            'career_score': 'career',
+            'behavioral_score': 'behavioral',
+            'education_score': 'education',
+            'semantic_score': 'semantic'
+        }
         n = len(scored_candidates)
         
+        # 1. Compute Percentile-rank calibration
         for key in score_keys:
             # Sort indices based on score values ascending
             sorted_indices = sorted(range(n), key=lambda i: scored_candidates[i][key])
@@ -231,26 +240,70 @@ class RankingPipeline:
                     scored_candidates[sorted_indices[k]][key + '_calibrated'] = percentile
                 i = j
                 
-        # Re-calculate composite score using calibrated scores
+        # 2. Compute RRF-rank dictionaries
+        rank_dict = {key: {} for key in score_keys}
+        for key in score_keys:
+            # Sort indices based on score values descending (highest score gets rank 1)
+            sorted_indices_desc = sorted(range(n), key=lambda i: scored_candidates[i][key], reverse=True)
+            
+            # Compute ranks, handling ties with average rank
+            i = 0
+            while i < n:
+                j = i
+                while j < n and scored_candidates[sorted_indices_desc[j]][key] == scored_candidates[sorted_indices_desc[i]][key]:
+                    j += 1
+                group_rank = (i + j + 1) / 2.0
+                for k in range(i, j):
+                    cid = scored_candidates[sorted_indices_desc[k]]['candidate_id']
+                    rank_dict[key][cid] = group_rank
+                i = j
+                
+        # 3. Calculate blended composite score
         for item in scored_candidates:
-            item['composite_score'] = calculate_composite_score(
-                item['candidate'],
-                item['skill_score_calibrated'],
-                item['career_score_calibrated'],
-                item['behavioral_score_calibrated'],
-                item['behavioral_multiplier'],
-                1.0 if item['honeypot_flag'] else 0.0,
-                item['honeypot_flag'],
-                item['education_score_calibrated'],
-                semantic_score=item['semantic_score_calibrated'],
-                hard_disqualified=item['hard_disqualified'],
-                soft_penalty=item['soft_penalty'],
-            )
+            if item['honeypot_flag'] or item['hard_disqualified']:
+                item['composite_score'] = 0.0
+            else:
+                heuristic_score = calculate_composite_score(
+                    item['candidate'],
+                    item['skill_score_calibrated'],
+                    item['career_score_calibrated'],
+                    item['behavioral_score_calibrated'],
+                    item['behavioral_multiplier'],
+                    1.0 if item['honeypot_flag'] else 0.0,
+                    item['honeypot_flag'],
+                    item['education_score_calibrated'],
+                    semantic_score=item['semantic_score_calibrated'],
+                    hard_disqualified=item['hard_disqualified'],
+                    soft_penalty=item['soft_penalty'],
+                )
+                
+                # Reciprocal Rank Fusion score (k = 60)
+                k = 60.0
+                rrf_sum = 0.0
+                for key in score_keys:
+                    rank = rank_dict[key].get(item['candidate_id'], n)
+                    weight = COMPOSITE_WEIGHTS.get(weight_key_map[key], 0.20)
+                    rrf_sum += weight / (k + rank)
+                    
+                # Normalize RRF score to range [0.0, 1.0] by multiplying by (k + 1)
+                rrf_score = rrf_sum * (k + 1.0)
+                
+                # Blend: 65% heuristic composite, 35% normalized RRF
+                item['composite_score'] = 0.65 * heuristic_score + 0.35 * rrf_score
 
     def final_rank(self, scored_candidates: List[Dict[str, Any]], top_n: int = 100, progress_callback: Optional[Callable] = None) -> List[Dict[str, Any]]:
         import os
-        from scoring.semantic_similarity import get_openai_embeddings, get_local_embeddings, assemble_candidate_text, JD_TEXT
+        from scoring.semantic_similarity import get_openai_embeddings, get_local_embeddings, segment_candidate_text, assemble_candidate_text, JD_TEXT
         
+        # 5 Core Job Description Areas for MaxSim matching
+        jd_areas = [
+            "embeddings-based retrieval sentence-transformers OpenAI BGE E5 similarity cosine",
+            "Vector databases hybrid search Pinecone Weaviate Qdrant Milvus FAISS Elasticsearch OpenSearch",
+            "Evaluation frameworks for ranking NDCG MRR MAP A/B testing recommendation systems learn-to-rank",
+            "LLM fine-tuning LoRA QLoRA PEFT RLHF instruction prompt engineering",
+            "Distributed systems Large-scale inference MLOps kubernetes docker AWS GCP Azure"
+        ]
+        area_weights = [0.25, 0.25, 0.20, 0.15, 0.15]
         
         api_key = os.getenv("OPENAI_API_KEY")
         
@@ -275,16 +328,24 @@ class RankingPipeline:
             re_rank_pool = scored_candidates[:re_rank_pool_size]
             other_pool = scored_candidates[re_rank_pool_size:]
             
-            # Extract candidate text narratives for embedding
-            candidate_texts = [assemble_candidate_text(item['candidate']) for item in re_rank_pool]
-            
             # Get JD embedding and candidate embeddings
             try:
-                jd_emb_list = embed_fn([JD_TEXT])
-                if jd_emb_list:
-                    jd_emb = jd_emb_list[0]
-                    cand_embs = embed_fn(candidate_texts)
-                    if cand_embs:
+                jd_embs = embed_fn(jd_areas)
+                if jd_embs:
+                    # For each candidate in the pool, build their list of segments
+                    candidate_segments_map = []
+                    flat_candidate_segments = []
+                    
+                    for item in re_rank_pool:
+                        cand = item['candidate']
+                        segs = segment_candidate_text(cand)
+                        if not segs:
+                            segs = [""] # fallback
+                        candidate_segments_map.append(len(segs))
+                        flat_candidate_segments.extend(segs)
+                        
+                    all_cand_embs = embed_fn(flat_candidate_segments)
+                    if all_cand_embs:
                         import math
                         def cosine_sim(v1, v2):
                             dot = sum(a*b for a,b in zip(v1, v2))
@@ -292,10 +353,28 @@ class RankingPipeline:
                             n2 = math.sqrt(sum(b*b for b in v2))
                             return dot / (n1 * n2) if n1 > 0 and n2 > 0 else 0.0
                         
-                        # Re-calculate similarity and update semantic_score
-                        for item, cand_emb in zip(re_rank_pool, cand_embs):
-                            sim = cosine_sim(jd_emb, cand_emb)
-                            item['semantic_score'] = round(sim * 100.0, 2)
+                        # Map flat candidate embeddings back to each candidate
+                        emb_idx = 0
+                        for item, num_segs in zip(re_rank_pool, all_cand_embs): # wait, all_cand_embs and candidate_segments_map correspond
+                            pass
+                        
+                        # Correct mapping index loop:
+                        emb_idx = 0
+                        for item, num_segs in zip(re_rank_pool, candidate_segments_map):
+                            cand_segs_embs = all_cand_embs[emb_idx : emb_idx + num_segs]
+                            emb_idx += num_segs
+                            
+                            # Late Interaction / MaxSim Calculation
+                            total_score = 0.0
+                            for area_idx, jd_emb in enumerate(jd_embs):
+                                max_sim = 0.0
+                                for cand_emb in cand_segs_embs:
+                                    sim = cosine_sim(jd_emb, cand_emb)
+                                    if sim > max_sim:
+                                        max_sim = sim
+                                total_score += area_weights[area_idx] * max_sim
+                                
+                            item['semantic_score'] = round(total_score * 100.0, 2)
                             
                         # Merge pool back
                         scored_candidates = re_rank_pool + other_pool

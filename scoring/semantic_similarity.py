@@ -275,6 +275,17 @@ def _cosine_similarity(vec1: list[float], vec2: list[float]) -> float:
 # Precompute the JD vector once at module load
 JD_VECTOR = _get_tfidf_vector(JD_TEXT)
 
+# 5 Core Job Description Areas for MaxSim matching
+JD_AREAS = [
+    "embeddings-based retrieval sentence-transformers OpenAI BGE E5 similarity cosine",
+    "Vector databases hybrid search Pinecone Weaviate Qdrant Milvus FAISS Elasticsearch OpenSearch",
+    "Evaluation frameworks for ranking NDCG MRR MAP A/B testing recommendation systems learn-to-rank",
+    "LLM fine-tuning LoRA QLoRA PEFT RLHF instruction prompt engineering",
+    "Distributed systems Large-scale inference MLOps kubernetes docker AWS GCP Azure"
+]
+JD_AREAS_VECTORS = [_get_tfidf_vector(area) for area in JD_AREAS]
+JD_AREAS_WEIGHTS = [0.25, 0.25, 0.20, 0.15, 0.15]
+
 
 def assemble_candidate_text(candidate: dict) -> str:
     if not isinstance(candidate, dict):
@@ -309,24 +320,70 @@ def assemble_candidate_text(candidate: dict) -> str:
     return " ".join([str(p) for p in candidate_text_parts if p])
 
 
+def segment_candidate_text(candidate: dict) -> list[str]:
+    if not isinstance(candidate, dict):
+        return []
+    profile = candidate.get('profile') or {}
+    if not isinstance(profile, dict):
+        profile = {}
+        
+    segments = []
+    
+    # Segment 1: headline, summary, current title
+    summary_parts = [
+        profile.get('headline') or '',
+        profile.get('summary') or '',
+        profile.get('current_title') or ''
+    ]
+    summary_str = " ".join([str(p) for p in summary_parts if p]).strip()
+    if summary_str:
+        segments.append(summary_str)
+        
+    # Segment 2: Skills
+    skills = candidate.get('skills') or []
+    if isinstance(skills, list):
+        skills_str = " ".join([str(s.get('name') or '') for s in skills if isinstance(s, dict)]).strip()
+        if skills_str:
+            segments.append(skills_str)
+            
+    # Segment 3: Career History roles (treat each role as a separate segment)
+    career_history = candidate.get('career_history') or []
+    if isinstance(career_history, list):
+        for role in career_history[:3]: # last 3 roles
+            if isinstance(role, dict):
+                role_parts = [
+                    role.get('title') or '',
+                    role.get('description') or ''
+                ]
+                role_str = " ".join([str(p) for p in role_parts if p]).strip()
+                if role_str:
+                    segments.append(role_str)
+                    
+    return segments
+
+
 def score_semantic_similarity(candidate: dict) -> float:
     """
     Compute semantic similarity between candidate profile and the JD.
     Returns a normalized similarity score from 0.0 to 100.0.
 
-    Uses TF-IDF with static IDF heuristics to heavily weight rare,
-    domain-specific terms (e.g. 'qlora', 'weaviate', 'ndcg') and
-    down-weight generic terms (e.g. 'engineer', 'senior', 'development').
+    Uses ColBERT-style MaxSim with static IDF heuristics to evaluate the 
+    candidate against 5 core JD areas separately, avoiding text dilution.
     """
-    candidate_text = assemble_candidate_text(candidate)
-    if not candidate_text:
+    segments = segment_candidate_text(candidate)
+    if not segments:
         return 0.0
 
-    # Calculate TF-IDF vector
-    cand_vector = _get_tfidf_vector(candidate_text)
+    # Calculate TF-IDF vectors for candidate segments
+    cand_vectors = [_get_tfidf_vector(seg) for seg in segments]
 
-    # Calculate similarity
-    sim = _cosine_similarity(JD_VECTOR, cand_vector)
+    total_score = 0.0
+    for area_idx, jd_vec in enumerate(JD_AREAS_VECTORS):
+        max_sim = 0.0
+        for cand_vec in cand_vectors:
+            sim = _cosine_similarity(jd_vec, cand_vec)
+            if sim > max_sim:
+                max_sim = sim
+        total_score += JD_AREAS_WEIGHTS[area_idx] * max_sim
 
-    # Scale from 0-1 to 0-100
-    return round(sim * 100.0, 2)
+    return round(total_score * 100.0, 2)

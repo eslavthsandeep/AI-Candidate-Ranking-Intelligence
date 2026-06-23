@@ -141,6 +141,7 @@ def check_disqualifiers(candidate: dict, skill_result: dict | None = None) -> di
     reasons: list[str] = []
     hard = False
     soft_penalty = 1.0
+    deductions = 0.0
 
     # ── Hard: non-tech title + keyword stuffing ─────────────────
     if _is_non_tech_title(title) and must_have_count >= 3:
@@ -155,17 +156,34 @@ def check_disqualifiers(candidate: dict, skill_result: dict | None = None) -> di
         hard = True
         reasons.append("Non-technical role with many expert-level AI skills")
 
-    # ── Hard: consulting-only entire career ─────────────────────
+    # ── Hard/Soft: consulting-only entire career ─────────────────────
     if career:
         valid_roles = [r for r in career if isinstance(r, dict)]
-        consulting_roles = sum(
-            1 for r in valid_roles
-            if (r.get("company") or "").strip().lower() in CONSULTING_COMPANIES
-            or (r.get("industry") or "").lower() in ("it services", "consulting", "staffing")
-        )
-        if valid_roles and consulting_roles == len(valid_roles):
-            hard = True
-            reasons.append("Entire career at consulting firms")
+        if valid_roles:
+            consulting_roles = sum(
+                1 for r in valid_roles
+                if (r.get("company") or "").strip().lower() in CONSULTING_COMPANIES
+                or (r.get("industry") or "").lower() in ("it services", "consulting", "staffing")
+            )
+            
+            # Check if the latest/current role is consulting
+            latest_role = valid_roles[0]
+            latest_is_consulting = (
+                (latest_role.get("company") or "").strip().lower() in CONSULTING_COMPANIES
+                or (latest_role.get("industry") or "").lower() in ("it services", "consulting", "staffing")
+                or (latest_role.get("is_current") and (
+                    (latest_role.get("company") or "").strip().lower() in CONSULTING_COMPANIES
+                    or (latest_role.get("industry") or "").lower() in ("it services", "consulting", "staffing")
+                ))
+            )
+            
+            if consulting_roles == len(valid_roles) and latest_is_consulting:
+                hard = True
+                reasons.append("Entire career at consulting firms")
+            elif consulting_roles > 0:
+                fraction = consulting_roles / len(valid_roles)
+                deductions += 0.30 * fraction
+                reasons.append(f"Significant career history at consulting firms ({consulting_roles}/{len(valid_roles)} roles)")
 
     # ── Hard: CV/Speech-only without NLP/IR depth ───────────────
     canonical_skills = {_canonicalize(s.get("name")) for s in skills if isinstance(s, dict)}
@@ -192,8 +210,6 @@ def check_disqualifiers(candidate: dict, skill_result: dict | None = None) -> di
     if has_cv_speech and not has_nlp_ir:
         hard = True
         reasons.append("CV/Speech focus without NLP/IR exposure")
-
-    deductions = 0.0
 
     # ── Soft: no production signals in last 18 months ───────────
     recent_roles = [
