@@ -163,9 +163,9 @@ def check_disqualifiers(candidate: dict, skill_result: dict | None = None) -> di
             if (r.get("company") or "").strip().lower() in CONSULTING_COMPANIES
             or (r.get("industry") or "").lower() in ("it services", "consulting", "staffing")
         )
-        if valid_roles and consulting_roles == len(valid_roles) and must_have_count < 3:
+        if valid_roles and consulting_roles == len(valid_roles):
             hard = True
-            reasons.append("Entire career at consulting firms without core AI fit")
+            reasons.append("Entire career at consulting firms")
 
     # ── Hard: CV/Speech-only without NLP/IR depth ───────────────
     canonical_skills = {_canonicalize(s.get("name")) for s in skills if isinstance(s, dict)}
@@ -189,9 +189,9 @@ def check_disqualifiers(candidate: dict, skill_result: dict | None = None) -> di
             for kw in ("nlp", "retrieval", "embedding", "search", "ranking", "ir ")
         )
 
-    if has_cv_speech and not has_nlp_ir and must_have_count < 2:
+    if has_cv_speech and not has_nlp_ir:
         hard = True
-        reasons.append("CV/Speech focus without NLP/IR or retrieval experience")
+        reasons.append("CV/Speech focus without NLP/IR exposure")
 
     deductions = 0.0
 
@@ -246,6 +246,18 @@ def check_disqualifiers(candidate: dict, skill_result: dict | None = None) -> di
     if academic_only:
         deductions += 0.25
         reasons.append("Academic/research profile without production shipping evidence")
+
+    # ── Soft: job-hopping pattern (switching < 18 months on average) ───────────
+    if len(career) >= 2:
+        durations = [r.get("duration_months") or 0 if isinstance(r, dict) else 0 for r in career]
+        non_current = [
+            d for r, d in zip(career, durations) if isinstance(r, dict) and not r.get("is_current", False)
+        ]
+        if non_current:
+            avg_tenure = sum(non_current) / len(non_current)
+            if avg_tenure < 18:
+                deductions += 0.20
+                reasons.append("Frequent job-switching history (average tenure under 18 months)")
 
     soft_penalty = max(0.20, 1.0 - deductions)
 

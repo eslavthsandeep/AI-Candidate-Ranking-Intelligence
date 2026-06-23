@@ -676,7 +676,7 @@ RELEVANT_FIELDS: set[str] = {
     "electrical engineering", "electronics and communication",
     "electronics & communication", "information systems",
     "computational linguistics", "applied mathematics",
-    "software engineering", "computing",
+    "software engineering", "computing", "computer engineering", "physics",
 }
 
 DEGREE_WEIGHTS: dict[str, int] = {
@@ -703,6 +703,7 @@ RELEVANT_CERTIFICATIONS: dict[str, int] = {
     "aws machine learning specialty": 15,
     "aws ml specialty": 15,
     "google cloud professional machine learning": 15,
+    "google cloud professional ml engineer": 15,
     "gcp ml engineer": 15,
     "gcp machine learning": 15,
     "tensorflow developer certificate": 12,

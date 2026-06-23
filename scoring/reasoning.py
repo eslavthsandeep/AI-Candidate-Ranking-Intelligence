@@ -249,7 +249,7 @@ def generate_reasoning(
     templates = [
         f"Strengths: {strength_str}. Evidence: {title} at {company} ({yoe:.1f}y), based in {location}. Risks: {risk_str}. Verdict: {verdict}.",
         f"Strengths: {strength_str}. Highlight: {yoe:.1f}y experience as {title} at {company} in {location}. Risks: {risk_str}. Verdict: {verdict}.",
-        f"Strengths: Highly proficient in {skills_str} and {strength_str}. Evidence: {yoe:.1f} years as {title} at {company} ({location}). Risks: {risk_str}. Verdict: {verdict}.",
+        f"Strengths: Highly proficient in {skills_str}; {strength_str.replace(f' ({skills_str})', '')}. Evidence: {yoe:.1f} years as {title} at {company} ({location}). Risks: {risk_str}. Verdict: {verdict}.",
         f"Strengths: {strength_str}. Background: {yoe:.1f}y as {title} at {company} ({location}). Concerns: {risk_str}. Verdict: {verdict}.",
         f"Strengths: {strength_str}. Evidence: {title} at {company} in {location} ({yoe:.1f}y). Key Risks: {risk_str}. Verdict: {verdict}."
     ]

@@ -95,7 +95,26 @@ class RankingPipeline:
         SUMMARY_LONG_KWS = {'machine learning', 'deep learning', 'retrieval', 'embedding', 'vector search', 'fine-tuning'}
         has_ai_summary = RE_SHORT_SUMMARY.search(summary) is not None or any(kw in summary for kw in SUMMARY_LONG_KWS)
 
-        return has_ai_title or has_ai_headline or has_ai_skills or has_ai_summary
+        # Check career history descriptions for hands-on systems experience
+        career = candidate.get('career_history', [])
+        CAREER_KWS = {
+            "machine learning", "deep learning", "recommendation",
+            "search", "ranking", "retrieval", "embeddings", "embedding",
+            "vector search", "hybrid search", "nlp", "information retrieval",
+            "rag", "sentence-transformers", "pinecone", "weaviate", "qdrant",
+            "milvus", "faiss", "elasticsearch", "opensearch"
+        }
+        has_ai_career = False
+        if isinstance(career, list):
+            for role in career:
+                if isinstance(role, dict):
+                    desc = (role.get("description") or "").lower()
+                    r_title = (role.get("title") or "").lower()
+                    if any(kw in desc for kw in CAREER_KWS) or any(kw in r_title for kw in CAREER_KWS):
+                        has_ai_career = True
+                        break
+
+        return has_ai_title or has_ai_headline or has_ai_skills or has_ai_summary or has_ai_career
 
 
     def process_candidates(
