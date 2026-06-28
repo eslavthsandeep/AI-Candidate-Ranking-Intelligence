@@ -1,20 +1,20 @@
 # Redrob Hackathon — Submission Metadata
-team_name: "team_antigravity"
+team_name: "team_sandeep"
 
 primary_contact:
-  name: "Antigravity Team"
-  email: "contact@antigravity.ai"
+  name: "Sandeep Eslavth"
+  email: "e.sandeepsandy123@gmail.com"
   phone: "+91-9876543210"
 
 team_members:
-  - name: "Antigravity AI"
-    email: "contact@antigravity.ai"
+  - name: "Sandeep Eslavth"
+    email: "e.sandeepsandy123@gmail.com"
     role: "ML Lead"
 
 github_repo: "https://github.com/eslavthsandeep/AI-Candidate-Ranking-Intelligence"
 sandbox_link: "http://127.0.0.1:5000"
 
-reproduce_command: "python rank.py --candidates ./[PUB] India_runs_data_and_ai_challenge/[PUB] India_runs_data_and_ai_challenge/India_runs_data_and_ai_challenge/candidates.jsonl --out team_antigravity.csv"
+reproduce_command: "python rank.py --candidates ./[PUB] India_runs_data_and_ai_challenge/[PUB] India_runs_data_and_ai_challenge/India_runs_data_and_ai_challenge/candidates.jsonl --out team_sandeep.csv"
 
 compute:
   platform: "Local Windows Machine"

@@ -1,4 +1,4 @@
-# 🏆 Team Antigravity — AI Candidate Ranking Intelligence
+# 🏆 AI Candidate Ranking Intelligence
 
 A production-grade, high-fidelity candidate discovery and ranking engine designed for the **Intelligent Candidate Discovery & Ranking Challenge** (India Runs Data & AI Challenge). It processes, filters, and ranks **100,000+** candidate profiles, producing an optimized shortlist of the **top 100** candidates for a **Senior AI Engineer** role in less than **4 minutes** entirely offline on CPU.
 
@@ -71,13 +71,13 @@ Download `candidates.jsonl` from the challenge portal and place it in the nested
 ### 3. Generate Submission CSV
 
 ```bash
-python rank.py --candidates "./[PUB] India_runs_data_and_ai_challenge/[PUB] India_runs_data_and_ai_challenge/India_runs_data_and_ai_challenge/candidates.jsonl" --out team_antigravity.csv
+python rank.py --candidates "./[PUB] India_runs_data_and_ai_challenge/[PUB] India_runs_data_and_ai_challenge/India_runs_data_and_ai_challenge/candidates.jsonl" --out team_sandeep.csv
 ```
 
 ### 4. Validate Submission
 
 ```bash
-python "./[PUB] India_runs_data_and_ai_challenge/[PUB] India_runs_data_and_ai_challenge/India_runs_data_and_ai_challenge/validate_submission.py" team_antigravity.csv
+python "./[PUB] India_runs_data_and_ai_challenge/[PUB] India_runs_data_and_ai_challenge/India_runs_data_and_ai_challenge/validate_submission.py" team_sandeep.csv
 ```
 
 ---
