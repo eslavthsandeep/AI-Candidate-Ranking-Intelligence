@@ -1,143 +1,133 @@
-# Redrob AI — Candidate Ranking Intelligence
+# 🏆 Team Antigravity — AI Candidate Ranking Intelligence
 
-Hybrid recruiter ranking engine for the **India Runs Data & AI Challenge**. Filters, scores, and shortlists the **top 100** candidates from **100,000+** profiles for a **Senior AI Engineer** role — CPU-only, &lt;16GB RAM, &lt;5 min, with honeypot detection and JD disqualifier gates.
-
----
-
-## What's New (Hackathon-Ready & Optimized)
-
-- **Phase 3 Kaggle Grandmaster Optimizations** — Complete defensive programming against `NoneType` and structure failures, canonical skill alias expansion (e.g. `retrieval systems`, `experiment tracking`), and tightened prefilter keyword targeting.
-- **JD disqualifier gate** — hard/soft penalties for consulting-only, non-tech stuffers, CV-without-NLP, no production signals.
-- **Semantic JD fit scorer** — narrative alignment without GPU or network.
-- **7-check honeypot detector** — expanded trap detection using full config taxonomy.
-- **Title-tier skill weighting** — Civil Engineer / HR Manager cannot rank on keywords alone.
-- **Evidence-linked reasoning** — Verdict + Strengths + Risks (no false "Exceptional fit").
-- **Submission kit** — `submission_metadata.yaml`, `scripts/run_submission.*`, `docs/APPROACH.md` (convert to PDF).
+A production-grade, high-fidelity candidate discovery and ranking engine designed for the **Intelligent Candidate Discovery & Ranking Challenge** (India Runs Data & AI Challenge). It processes, filters, and ranks **100,000+** candidate profiles, producing an optimized shortlist of the **top 100** candidates for a **Senior AI Engineer** role in less than **4 minutes** entirely offline on CPU.
 
 ---
 
-## Architecture
+## 🚀 Key Architectural Pillars
+
+### 1. ColBERT-style MaxSim Semantic Similarity
+Rather than concatenating a candidate's entire resume into a single string (which dilutes specialized technical search queries with boilerplate resume terms), the engine uses a **late-interaction MaxSim** matcher:
+* **Query Segmentation**: The Job Description is divided into **5 Core JD Areas** (Retrieval & Search, Vector Databases, Evaluation & Ranking, LLM Fine-Tuning, and MLOps/Systems).
+* **Profile Segmentation**: Candidate profiles are parsed into 3 distinct logical segments:
+  1. *Headline, Summary, and Current Title*
+  2. *Skills*
+  3. *Career History Roles* (individual role titles and descriptions evaluated independently)
+* **Late-Interaction Score**: For each Core JD Area, the engine computes the maximum similarity across all candidate segments, then takes a weighted average of these maximum values:
+  $$\text{Semantic Similarity} = \sum_{a \in \text{Core Areas}} \text{Weight}_a \times \max_{s \in \text{Segments}} \left( \text{CosineSim}(a, s) \right)$$
+
+### 2. Reciprocal Rank Fusion (RRF) Calibration
+To increase robustness against variations in dataset distributions and metric scales, the engine employs a dual-channel rank blending system:
+* **Percentile Calibration**: Calibrates raw scores (Skill, Career, Semantic, Education, Behavioral) to percentiles pool-wide.
+* **RRF Scoring**: Candidates are ranked independently across the 5 dimensions. An RRF score is computed using:
+  $$\text{RRF Score}(c) = \sum_{d \in \text{Dimensions}} \frac{\text{Weight}_d}{k + \text{Rank}_d(c)}$$
+  *(where $k = 60$ and $\text{Weight}_d$ is the dimension weight).*
+* **Hybrid Blend**: Blends the heuristic composite score (65%) with the RRF score (35%) to generate the final rank.
+
+### 3. Softened Career Disqualifications
+To prevent false-positive drops of experienced AI engineers with mixed career histories:
+* **Conditional Exclusions**: Candidates are only hard-disqualified if **100% of their career history** is consulting-only *and* their **current/latest role** is at a consulting firm.
+* **Proportional Soft Decay**: Candidates with mixed experience (historical consulting roles, but now in product engineering) receive a soft penalty deduction proportional to their career tenure:
+  $$\text{Soft Deduction} = 0.30 \times \frac{\text{Consulting Roles}}{\text{Total Roles}}$$
+
+### 4. Offline Stage-2 Semantic Re-ranking
+* **Stage-1 Prefilter**: A regex filter keeps only candidates showing relevant AI/ML keywords in their title, summary, skills, or career history, filtering out ~64% of noisy profiles.
+* **Stage-2 Re-ranking**: The top 300 candidates undergo high-fidelity re-ranking using a local ONNX `all-MiniLM-L6-v2` encoder model.
+* **Sandbox Safety**: Thread limits are constrained (`intra_op_num_threads = 1` and `inter_op_num_threads = 1`) to run safely in CPU-bound sandboxes without memory leaks.
+
+---
+
+## 📈 System Flow
 
 ```mermaid
 graph TD
-    A["100K Candidates JSONL"] --> B["Stage 1: Pre-Filter"]
-    B --> C["Stage 2: Skill + Career + Behavioral + Education + Semantic"]
-    C --> D["Stage 3: Honeypot Detection"]
-    D --> E["Stage 4: JD Disqualifier Gate"]
-    E --> F["Stage 5: Composite Score + Behavioral Bonus"]
-    F --> G["Stage 6: Sort + Tie-Break"]
-    G --> H["Stage 7: Reasoning + CSV Export"]
+    A["100K Candidates JSONL"] --> B["Stage 1: Prefilter (~36% Kept)"]
+    B --> C["Stage 2: Feature Scoring (Skill, Career, Behavioral, Education, Semantic)"]
+    C --> D["Stage 3: Disqualifier & Honeypot Checks"]
+    D --> E["Stage 4: Pool-wide Percentile Calibration"]
+    E --> F["Stage 5: Reciprocal Rank Fusion (RRF) Ranking"]
+    F --> G["Stage 6: Heuristic/RRF Hybrid Blending (65/35)"]
+    G --> H["Stage 7: Local ONNX Semantic Re-ranking (Top 300)"]
+    H --> I["Stage 8: Rescale Top 100 [0.2000, 0.9900] + Alphabetical Tie-breaker"]
+    I --> J["Output CSV & Dynamic Reasoning"]
 ```
-
-### Scoring Weights
-
-| Dimension | Weight |
-|-----------|--------|
-| Skill clusters | 30% |
-| Career & trajectory | 35% |
-| Semantic JD fit | 15% |
-| Behavioral | 12% |
-| Education | 8% |
 
 ---
 
-## Quick Start
+## 🛠️ Quick Start
 
-### 1. Install
+### 1. Installation
 
 ```bash
 pip install -r requirements.txt
 ```
 
 ### 2. Dataset Setup
-
-Download `candidates.jsonl` from the challenge portal and place it in the challenge root directory:
-
+Download `candidates.jsonl` from the challenge portal and place it in the nested path:
 ```
 [PUB] India_runs_data_and_ai_challenge/[PUB] India_runs_data_and_ai_challenge/India_runs_data_and_ai_challenge/candidates.jsonl
 ```
 
-### 3. Generate Submission
+### 3. Generate Submission CSV
 
 ```bash
-# Windows (PowerShell)
 python rank.py --candidates "./[PUB] India_runs_data_and_ai_challenge/[PUB] India_runs_data_and_ai_challenge/India_runs_data_and_ai_challenge/candidates.jsonl" --out team_antigravity.csv
-
-# Directly run pipeline and output to project root
-python rank.py --candidates [path_to_jsonl] --out team_antigravity.csv
 ```
 
-### 4. Validate
+### 4. Validate Submission
 
 ```bash
 python "./[PUB] India_runs_data_and_ai_challenge/[PUB] India_runs_data_and_ai_challenge/India_runs_data_and_ai_challenge/validate_submission.py" team_antigravity.csv
 ```
 
-### 5. Web Dashboard
+---
 
+## 🖥️ Web Dashboard
+
+Start the Flask dashboard:
 ```bash
 python app.py
-# Open http://127.0.0.1:5000
+```
+Open **[http://127.0.0.1:5000](http://127.0.0.1:5000)** in your browser to inspect candidate lists, view radar-chart breakdowns of top matches, and run real-time validations.
+
+---
+
+## 🧪 Running Tests
+
+Execute the test suite to verify scoring calibration, GPA parsing, career trajectory models, and semantic similarity:
+```bash
+python -m unittest tests/test_scoring.py -v
 ```
 
 ---
 
-## Submission Checklist
+## 📂 Project Structure
 
-- [x] `team_antigravity.csv` — 100 rows, validated successfully (`Submission is valid.`)
-- [x] `docs/APPROACH.md` — document detailing the hybrid ranking approach and design decisions
-- [x] `submission_metadata.yaml` — configured with team name, repo, sandbox URL, and reproduce command
-- [x] Web dashboard running locally and deployable to Render/Railway
-- [x] Public GitHub repository containing clean, optimized codebase without duplicate files
-
----
-
-## Project Structure
-
-```
-rank.py                  # CLI entry point
-app.py                   # Flask dashboard
-config.py                # JD taxonomy, weights, aliases
+```text
+rank.py                  # CLI pipeline entry point
+app.py                   # Flask dashboard (Render-ready port bindings)
+config.py                # Weights, skill taxonomy, aliases, JD constants
+Procfile                 # Production server deployment directives
+models/                  # Offline model weights (Tokenizer.json, model.onnx)
 scoring/
-  skill_matcher.py       # Cluster-based skill scoring
-  career_scorer.py       # Career trajectory + production signals
-  behavioral_scorer.py   # Platform engagement signals
-  semantic_scorer.py     # JD narrative fit
-  disqualifier.py        # JD hard/soft gates
-  honeypot_detector.py   # Fabricated profile detection
-  composite.py           # Weighted aggregation
-  reasoning.py           # Recruiter reasoning strings
-tests/test_scoring.py    # Unit tests
-docs/APPROACH.md         # Deck (convert to PDF)
-submission_metadata.yaml # Portal metadata
+  skill_matcher.py       # Custom skill clustering & proficiency scoring
+  career_scorer.py       # Trajectory, company tiers, & job-hopping penalties
+  behavioral_scorer.py   # Multi-signal engagement & responsiveness analyzer
+  semantic_scorer.py     # Stage-1 TF-IDF document similarity
+  semantic_similarity.py # MaxSim late-interaction TF-IDF & ONNX vectors
+  disqualifier.py        # Consulting soft decays & MUST-HAVE requirements
+  honeypot_detector.py   # Detection for fabricated candidate profiles
+  composite.py           # Feature aggregator & multiplier clamps
+  reasoning.py           # Deterministic recruiter summary generator
+tests/test_scoring.py    # Complete unit test coverage
 ```
 
 ---
 
-## Tests
+## ☁️ Deployment
 
+The project is pre-configured for web deployments (e.g., Render or Railway) using `gunicorn`:
 ```bash
-python -m unittest tests.test_scoring -v
+gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
 ```
-
----
-
-## Deployment
-
-```bash
-gunicorn app:app --workers 1 --threads 4 --timeout 120
-```
-
-See `Procfile` for Render/Railway.
-
----
-
-## Design Decisions
-
-| Decision | Rationale |
-|----------|-----------|
-| Hybrid rules + semantic overlap | Meets CPU/RAM constraints; interpretable + better than pure keywords |
-| Title-tier skill multiplier | Stops non-tech keyword stuffers reaching top 100 |
-| Disqualifier gate before composite | Enforces JD hard requirements like a recruiter |
-| Deterministic reasoning | Reproducible submissions across runs |
-| Streaming JSONL | Memory-efficient for 100K profiles |
+This is managed dynamically via the included `Procfile`.
